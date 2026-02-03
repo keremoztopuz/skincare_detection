@@ -6,6 +6,7 @@ DATA_DIR = "/Users/keremoztopuz/Desktop/senior_design_project_ai_model/FINAL_SPL
 TRAIN_DIR = os.path.join(DATA_DIR, "train")
 VAL_DIR = os.path.join(DATA_DIR, "val")
 TEST_DIR = os.path.join(DATA_DIR, "test")
+IMAGES_DIR = os.path.join("/Users/keremoztopuz/Desktop/senior_design_project_ai_model/outputs/images")
 
 # model parameters 
 MODEL_NAME = "convnext_tiny"
