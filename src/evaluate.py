@@ -5,7 +5,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 import matplotlib.pyplot as plt 
 import seaborn as sns 
 
-from config import DEVICE, MODEL_SAVE_PATH, CLASS_NAMES
+from config import DEVICE, MODEL_SAVE_PATH, CLASS_NAMES, IMAGES_DIR
 from model import build_model
 from dataset import get_dataloaders
 
@@ -68,7 +68,7 @@ def print_results(metrics, all_labels, all_predictions, save_plots=True):
         plt.title(f"confusion matrix - accuracy: {metrics['Accuracy']*100:.2f}%")
         plt.xticks(rotation=45, ha="right")
         plt.tight_layout()
-        plt.savefig("confusion_matrix.png", dpi=150)
+        plt.savefig(os.path.join(IMAGES_DIR, "confusion_matrix.png"))
         print("\nconfusion matrix saved to: confusion_matrix.png")
 
 if __name__ == "__main__":
