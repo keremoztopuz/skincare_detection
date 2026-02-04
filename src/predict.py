@@ -7,7 +7,7 @@ from torchvision import transforms
 from config import DEVICE, MODEL_SAVE_PATH, CLASS_NAMES, DATA_DIR, IMG_SIZE, MEAN, STD
 from model import build_model
 
-TEST_IMAGE_PATH = os.path.join(DATA_DIR, "test", "Acne", "acne-cystic-21.jpg")
+TEST_IMAGE_PATH = os.path.join(DATA_DIR, "test", "acne", "acne-cystic-97.jpg")
 
 def get_transform():
     return transforms.Compose([

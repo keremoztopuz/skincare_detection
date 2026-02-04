@@ -21,7 +21,7 @@ LEARNING_RATE = 1e-4
 WEIGHT_DECAY = 1e-5
 PATIENCE = 5
 CLASS_NAMES = ["Acne", "Eczema", "Psoriasis", "Ben_Lezyon", "Healthy"]
-CLASS_WEIGHTS = [1.0, 1.0, 1.0, 1.0, 1.0]
+CLASS_WEIGHTS = [1.0, 1.0, 1.0, 1.0, 0.7]
 SEED = 42
 
 # device

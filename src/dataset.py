@@ -7,21 +7,29 @@ import config
 
 #transforms
 train_transform = transforms.Compose([
-    transforms.RandomResizedCrop(config.IMG_SIZE, scale=(0.85, 1.0)),
+    transforms.RandomResizedCrop(IMG_SIZE, scale=(0.85, 1.0)),
     transforms.RandomHorizontalFlip(p=0.5),
     transforms.RandomRotation(15),
     transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.8, 1.2)),
     transforms.RandomPerspective(distortion_scale=0.1, p=0.5),
     transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0),
     transforms.ToTensor(),
-    transforms.Normalize(mean=config.MEAN, std=config.STD),
+    transforms.Normalize(mean=MEAN, std=STD),
     transforms.RandomErasing(p=0.5, scale=(0.02, 0.33), ratio=(0.3, 3.3)),
 ])
 
-val_transform = transforms.Compose([
-    transforms.Resize((config.IMG_SIZE, config.IMG_SIZE)),
+healthy_train_transform = transforms.Compose([
+    transforms.RandomResizedCrop(IMG_SIZE, scale=(0.15, 0.4)), 
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.ColorJitter(brightness=0.2, contrast=0.2),
     transforms.ToTensor(),
-    transforms.Normalize(mean=config.MEAN, std=config.STD)
+    transforms.Normalize(mean=config.MEAN, std=config.STD),
+])
+
+val_transform = transforms.Compose([
+    transforms.Resize((IMG_SIZE, IMG_SIZE)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=MEAN, std=STD)
 ])
 # dataset class
 class SkinDataset(Dataset):
