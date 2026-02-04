@@ -15,10 +15,8 @@ from config import (
     WEIGHT_DECAY,
     PATIENCE,
     BATCH_SIZE,
-    NUM_CLASSES,
     CHECKPOINT_DIR,
     MODEL_SAVE_PATH,
-    SEED
 )
 
 from model import build_model
@@ -57,6 +55,7 @@ def train_model(model, model_name=None, save_path=None, epochs=None):
     epochs = epochs or NUM_EPOCHS
     save_path = save_path or MODEL_SAVE_PATH
 
+    os.makedirs(CHECKPOINT_DIR, exist_ok=True)
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
     weights = torch.tensor(CLASS_WEIGHTS, dtype=torch.float32).to(DEVICE)
@@ -99,11 +98,17 @@ def train_model(model, model_name=None, save_path=None, epochs=None):
             if patience_counter >= PATIENCE:
                 print(f"Early stopping at epoch {epoch+1}")
                 break
-    
-    print("Training complete!")
+
+        checkpoint_path = os.path.join(CHECKPOINT_DIR, f"Epoch_{epoch+1}.pth")
+        torch.save({
+            'Epoch': epoch,
+            'Model_state_dict': model.state_dict(),
+            'Optimizer_state_dict': optimizer.state_dict(),
+            'Val_loss': val_loss,
+        }, checkpoint_path)
+
+    print("Training Completed")
 
 if __name__ == "__main__":
     model = build_model().to(DEVICE)
     train_model(model)
-
-        

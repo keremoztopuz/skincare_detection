@@ -6,7 +6,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 from torchvision import transforms
 
-from config import DEVICE, MODEL_SAVE_PATH, IMAGES_DIR, CLASS_NAMES, IMG_SIZE, MEAN, STD
+from config import DEVICE, MODEL_SAVE_PATH, IMAGES_DIR, DATA_DIR, CLASS_NAMES, IMG_SIZE, MEAN, STD
 from model import build_model
 
 def get_transform():
@@ -24,7 +24,7 @@ class GradCAM:
         self.activations = None
 
         target_layer.register_forward_hook(self.save_activation)
-        target_layer.register_backward_hook(self.save_gradient)
+        target_layer.register_full_backward_hook(self.save_gradient)
         
     def save_activation(self, module, input, output):
         self.activations = output
@@ -120,5 +120,5 @@ def visualize_gradcam(image_path, save_path=None):
     return cam, pred_class
 
 if __name__ == "__main__":
-    test_image = "/Users/keremoztopuz/Desktop/senior_design_project_ai_model/FINAL_SPLIT/test/Acne/acne-cystic-25.jpg"
+    test_image = os.path.join(DATA_DIR, "test", "Acne", "acne-cystic-25.jpg")
     visualize_gradcam(test_image, save_path=os.path.join(IMAGES_DIR, "gradcam_result.png"))

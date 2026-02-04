@@ -17,7 +17,7 @@ def evaluate_model(model_name=None, save_path=None):
         raise FileNotFoundError(f"Model file not found at {model_path}")
 
     model = build_model(pretrained=False)
-    model.load_state_dict(torch.load(model_path))
+    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
     model.to(DEVICE)
     model.eval()
 

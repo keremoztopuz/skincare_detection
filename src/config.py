@@ -2,11 +2,12 @@ import os
 import torch
 
 # dataset paths
-DATA_DIR = "/Users/keremoztopuz/Desktop/senior_design_project_ai_model/FINAL_SPLIT"
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(ROOT_DIR, "FINAL_SPLIT")
 TRAIN_DIR = os.path.join(DATA_DIR, "train")
 VAL_DIR = os.path.join(DATA_DIR, "val")
 TEST_DIR = os.path.join(DATA_DIR, "test")
-IMAGES_DIR = os.path.join("/Users/keremoztopuz/Desktop/senior_design_project_ai_model/outputs/images")
+IMAGES_DIR = os.path.join(ROOT_DIR, "outputs", "images")
 
 # model parameters 
 MODEL_NAME = "convnext_tiny"
@@ -34,6 +35,6 @@ STD = [0.2427, 0.2027, 0.1930]
 
 # saving paths
 
-CHECKPOINT_DIR = "/Users/keremoztopuz/Desktop/senior_design_project_ai_model/outputs/checkpoints"
-LOGS_DIR = os.path.join("/Users/keremoztopuz/Desktop/senior_design_project_ai_model/outputs/logs")
-MODEL_SAVE_PATH = os.path.join("/Users/keremoztopuz/Desktop/senior_design_project_ai_model/outputs/model", "best_model.pth")
+CHECKPOINT_DIR = os.path.join(ROOT_DIR, "outputs", "checkpoints")
+MODEL_SAVE_PATH = os.path.join(ROOT_DIR, "outputs", "model", "best_model.pth")
+LOGS_DIR = os.path.join(ROOT_DIR, "outputs", "logs")
