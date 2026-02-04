@@ -5,38 +5,43 @@ from torchvision import transforms
 from PIL import Image
 import config
 
-#transforms
-train_transform = transforms.Compose([
-    transforms.RandomResizedCrop(IMG_SIZE, scale=(0.85, 1.0)),
+# disease transforms
+disease_train_transform = transforms.Compose([
+    transforms.RandomResizedCrop(config.IMG_SIZE, scale=(0.6, 1.0)),
     transforms.RandomHorizontalFlip(p=0.5),
     transforms.RandomRotation(15),
     transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.8, 1.2)),
     transforms.RandomPerspective(distortion_scale=0.1, p=0.5),
     transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0),
     transforms.ToTensor(),
-    transforms.Normalize(mean=MEAN, std=STD),
+    transforms.Normalize(mean=config.MEAN, std=config.STD),
     transforms.RandomErasing(p=0.5, scale=(0.02, 0.33), ratio=(0.3, 3.3)),
 ])
 
+# healthy transforms
 healthy_train_transform = transforms.Compose([
-    transforms.RandomResizedCrop(IMG_SIZE, scale=(0.6, 1.0)), 
+    transforms.RandomResizedCrop(config.IMG_SIZE, scale=(0.15, 0.45)), 
     transforms.RandomHorizontalFlip(p=0.5),
-    transforms.ColorJitter(brightness=0.2, contrast=0.2),
+    transforms.RandomRotation(30),
+    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.1),
     transforms.ToTensor(),
-    transforms.Normalize(mean=MEAN, std=STD),
+    transforms.Normalize(mean=config.MEAN, std=config.STD),
+    transforms.RandomErasing(p=0.2),
 ])
 
 val_transform = transforms.Compose([
-    transforms.Resize((IMG_SIZE, IMG_SIZE)),
+    transforms.Resize((config.IMG_SIZE, config.IMG_SIZE)),
     transforms.ToTensor(),
-    transforms.Normalize(mean=MEAN, std=STD)
+    transforms.Normalize(mean=config.MEAN, std=config.STD)
 ])
+
 # dataset class
 class SkinDataset(Dataset):
-    def __init__(self, image_paths, labels, transform=None):
+    def __init__(self, image_paths, labels, transform_map=None, default_transform=None):
         self.image_paths = image_paths
         self.labels = labels
-        self.transform = transform
+        self.transform_map = transform_map
+        self.default_transform = default_transform
 
     def __len__(self):
         return len(self.image_paths)
@@ -44,10 +49,12 @@ class SkinDataset(Dataset):
     def __getitem__(self, idx):
         image_path = self.image_paths[idx]
         image = Image.open(image_path).convert("RGB")
-
-        if self.transform:
-            image = self.transform(image)
         label = self.labels[idx]
+
+        if self.transform_map and label in self.transform_map:
+            image = self.transform_map[label](image)
+        elif self.default_transform:
+            image = self.default_transform(image)
 
         return image, torch.tensor(label, dtype=torch.long)
 
@@ -79,9 +86,16 @@ def get_dataloaders(batch_size=config.BATCH_SIZE, shuffle=True):
     val_images, val_labels = load_data(config.VAL_DIR)
     test_images, test_labels = load_data(config.TEST_DIR)
 
-    train_dataset = SkinDataset(train_images, train_labels, transform=train_transform)
-    val_dataset = SkinDataset(val_images, val_labels, transform=val_transform)
-    test_dataset = SkinDataset(test_images, test_labels, transform=val_transform)
+    healthy_idx = config.CLASS_NAMES.index("Healthy")
+    train_transform_map = {healthy_idx: healthy_train_transform}
+
+    train_dataset = SkinDataset(
+        train_images, train_labels, 
+        transform_map=train_transform_map, 
+        default_transform=disease_train_transform
+    )
+    val_dataset = SkinDataset(val_images, val_labels, default_transform=val_transform)
+    test_dataset = SkinDataset(test_images, test_labels, default_transform=val_transform)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=4, pin_memory=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
