@@ -19,11 +19,11 @@ train_transform = transforms.Compose([
 ])
 
 healthy_train_transform = transforms.Compose([
-    transforms.RandomResizedCrop(IMG_SIZE, scale=(0.15, 0.4)), 
+    transforms.RandomResizedCrop(IMG_SIZE, scale=(0.6, 1.0)), 
     transforms.RandomHorizontalFlip(p=0.5),
     transforms.ColorJitter(brightness=0.2, contrast=0.2),
     transforms.ToTensor(),
-    transforms.Normalize(mean=config.MEAN, std=config.STD),
+    transforms.Normalize(mean=MEAN, std=STD),
 ])
 
 val_transform = transforms.Compose([
