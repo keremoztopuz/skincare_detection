@@ -120,5 +120,5 @@ def visualize_gradcam(image_path, save_path=None):
     return cam, pred_class
 
 if __name__ == "__main__":
-    test_image = os.path.join(DATA_DIR, "test", "acne", "acne-cystic-97.jpg")
+    test_image = os.path.join(DATA_DIR, "test", "acne", "acne-cystic-144.jpg")
     visualize_gradcam(test_image, save_path=os.path.join(IMAGES_DIR, "gradcam_result.png"))
