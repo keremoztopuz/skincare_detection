@@ -35,7 +35,8 @@ def validate_model(model, val_loader, criterion):
             outputs = model(images)
             loss = criterion(outputs, labels)
             running_loss += loss.item()
-            _, preds = torch.max(outputs, 1)
+            probs = torch.sigmoid(outputs)
+            preds = (probs > 0.5).float()
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
         
@@ -59,9 +60,10 @@ def train_model(model, model_name=None, save_path=None, epochs=None):
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
     weights = torch.tensor(CLASS_WEIGHTS, dtype=torch.float32).to(DEVICE)
-    criterion = nn.CrossEntropyLoss(weight=weights, label_smoothing=0.1)
+    criterion = nn.BCEWithLogitsLoss(pos_weight=weights)
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs, eta_min=LEARNING_RATE/10)
+    scaler = torch.amp.GradScaler('cuda')
     
     best_val_loss = float('inf')
     patience_counter = 0
@@ -78,10 +80,14 @@ def train_model(model, model_name=None, save_path=None, epochs=None):
             labels = labels.to(DEVICE)
 
             optimizer.zero_grad()
-            outputs = model(images)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+
+            with torch.autocast('cuda'):
+                outputs = model(images)
+                loss = criterion(outputs, labels)
+            
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
 
             running_loss += loss.item()
 
