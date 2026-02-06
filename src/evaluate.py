@@ -1,7 +1,11 @@
 import os 
 import torch
 from tqdm import tqdm 
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report, confusion_matrix
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, 
+    f1_score, classification_report, confusion_matrix, 
+    hamming_loss, multilabel_confusion_matrix
+)
 import matplotlib.pyplot as plt 
 import seaborn as sns 
 
@@ -32,7 +36,8 @@ def evaluate_model(model_name=None, save_path=None):
             labels = labels.to(DEVICE)
 
             outputs = model(images)
-            _, preds = torch.max(outputs, dim=1)
+            probs = torch.sigmoid(outputs)
+            preds = (probs > 0.5).float()
 
             all_labels.extend(labels.cpu().numpy())
             all_predictions.extend(preds.cpu().numpy())
@@ -59,17 +64,25 @@ def print_results(metrics, all_labels, all_predictions, save_plots=True):
     print(classification_report(all_labels, all_predictions, target_names=CLASS_NAMES))
     
     if save_plots:
-        cm = confusion_matrix(all_labels, all_predictions)
-        plt.figure(figsize=(12, 10))    
-        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", 
-                    xticklabels=CLASS_NAMES, yticklabels=CLASS_NAMES)
-        plt.xlabel("predicted")
-        plt.ylabel("true")
-        plt.title(f"confusion matrix - accuracy: {metrics['Accuracy']*100:.2f}%")
+        mcm = multilabel_confusion_matrix(all_labels, all_predictions)
+        fig, axes = plt.subplots(1, 5, figsize=(20, 4))
+
+        for i, (ax, class_name) in enumerate(zip(axes, CLASS_NAMES)):
+            sns.heatmap(mcm[i], annot=True, fmt="d", cmap="Blues", 
+                        xticklabels=["Pred 0", "Pred 1"], yticklabels=["True 0", "True 1"], ax=ax)
+                    
+            ax.set_xlabel("predicted")
+            ax.set_ylabel("true")
+            ax.set_title(f"{class_name}")
+        
+        plt.suptitle(f"confusion matrix - accuracy: {metrics['Accuracy']*100:.2f}%")
         plt.xticks(rotation=45, ha="right")
         plt.tight_layout()
         plt.savefig(os.path.join(IMAGES_DIR, "confusion_matrix.png"))
         print("\nconfusion matrix saved to: confusion_matrix.png")
+
+        for i, class_name in enumerate(CLASS_NAMES):
+            print(f"{class_name}: TN={mcm[i,0,0]}, FP={mcm[i,0,1]}, FN={mcm[i,1,0]}, TP={mcm[i,1,1]}")
 
 if __name__ == "__main__":
     metrics, all_labels, all_predictions = evaluate_model()
