@@ -56,7 +56,10 @@ class SkinDataset(Dataset):
         elif self.default_transform:
             image = self.default_transform(image)
 
-        return image, torch.tensor(label, dtype=torch.long)
+        one_hot_encoding = torch.zeros(len(config.CLASS_NAMES))
+        one_hot_encoding[label] = 1
+
+        return image, one_hot_encoding
 
 # gets all images and labels from the dataset
 def load_data(DATA_DIR):
