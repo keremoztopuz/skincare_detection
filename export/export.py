@@ -28,7 +28,7 @@ def export_to_coreml(model_path=None, output_path=None):
     
     mlmodel.author = "Berat Kerem Öztopuz, Zeynep Aslan"
     mlmodel.license = "MIT"
-    mlmodel.short_description = "Skin Disease Classifier with 5 classes"
+    mlmodel.short_description = "Skin Disease Classifier with 6 classes"
     mlmodel.version = "1.0"
     
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
