@@ -29,6 +29,7 @@ build/
 # Model outputs
 outputs/checkpoints/*.pth
 outputs/coreml/*.mlpackage
+*.db
 
 # OS
 .DS_Store
