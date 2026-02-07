@@ -11,7 +11,7 @@ IMAGES_DIR = os.path.join(ROOT_DIR, "outputs", "images")
 
 # model parameters 
 MODEL_NAME = "convnext_tiny"
-NUM_CLASSES = 5
+NUM_CLASSES = 6
 DROP_RATE = 0.2
 
 # training parameters
@@ -21,8 +21,8 @@ LEARNING_RATE = 1e-4
 WEIGHT_DECAY = 1e-5
 DETECTION_THRESHOLD = 0.3
 PATIENCE = 5
-CLASS_NAMES = ["Acne", "Eczema", "Psoriasis", "Ben_Lezyon", "Healthy"]
-CLASS_WEIGHTS = [1.0, 1.0, 1.0, 1.0, 0.7]
+CLASS_NAMES = ["Acne", "Eczema", "Psoriasis", "Ben_Lezyon", "Healthy", "Eye_Bags"]
+CLASS_WEIGHTS = [1.0, 1.0, 1.0, 1.0, 0.7, 2.5]
 SEED = 42
 
 # device
