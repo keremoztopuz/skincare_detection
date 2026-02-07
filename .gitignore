@@ -35,3 +35,6 @@ outputs/coreml/*.mlpackage
 # OS
 .DS_Store
 Thumbs.db
+outputs/model/best_model.pth
+outputs/images/confusion_matrix.png
+outputs/images/gradcam_result.png
