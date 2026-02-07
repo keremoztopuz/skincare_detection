@@ -29,6 +29,17 @@ healthy_train_transform = transforms.Compose([
     transforms.RandomErasing(p=0.2),
 ])
 
+# eye bagd transforms
+eyebag_train_transform = transforms.Compose([
+    transforms.RandomResizedCrop(config.IMG_SIZE, scale=(0.15, 0.45)), 
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.RandomRotation(30),
+    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.1),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=config.MEAN, std=config.STD),
+    transforms.RandomErasing(p=0.2),
+])
+
 val_transform = transforms.Compose([
     transforms.Resize((config.IMG_SIZE, config.IMG_SIZE)),
     transforms.ToTensor(),
@@ -90,7 +101,10 @@ def get_dataloaders(batch_size=config.BATCH_SIZE, shuffle=True):
     test_images, test_labels = load_data(config.TEST_DIR)
 
     healthy_idx = config.CLASS_NAMES.index("Healthy")
-    train_transform_map = {healthy_idx: healthy_train_transform}
+    train_transform_map[healthy_idx] = healthy_train_transform
+
+    eyebag_idx = config.CLASS_NAMES.index("Eye_Bags")
+    train_transform_map[eyebag_idx] = eyebag_train_transform
 
     train_dataset = SkinDataset(
         train_images, train_labels, 
