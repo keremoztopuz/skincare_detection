@@ -1,0 +1,17 @@
+{
+    "learning_rate": 4.253162363790868e-05,
+    "weight_decay": 3.35515102272148e-05,
+    "batch_size": 16,
+    "optimizer": "Adam",
+    "drop_rate": 0.21590058116550723,
+    "label_smoothing": 0.03224425745080089,
+    "brightness": 0.28242441308564326,
+    "contrast": 0.25203009489110423,
+    "saturation": 0.14501056347656355,
+    "erasing_prob": 0.44858423607508713,
+    "erasing_scale_min": 0.08429376615192916,
+    "erasing_scale_max": 0.19664251472150895,
+    "crop_scale_min": 0.7677676995469933,
+    "best_f1_score": 0.9688021136677196,
+    "best_trial_number": 6
+}

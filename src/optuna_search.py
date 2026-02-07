@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import warnings
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -12,6 +13,8 @@ from sklearn.metrics import f1_score
 import optuna
 from optuna.trial import TrialState
 
+warnings.filterwarnings("ignore", category=UserWarning)
+
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import config
@@ -20,7 +23,9 @@ from dataset import SkinDataset, load_data, val_transform
 
 N_TRIALS = 30
 EPOCHS_PER_TRIAL = 5
+STUDY_NAME = "skincare_ai_optimization"
 DEVICE = config.DEVICE
+OUTPUT_DIR = os.path.join(config.ROOT_DIR, "outputs", "optuna_results")
 
 
 def get_train_transform(trial):
@@ -119,7 +124,7 @@ def objective(trial):
         optimizer = optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay, momentum=0.9)
     
     scheduler = CosineAnnealingLR(optimizer, T_max=EPOCHS_PER_TRIAL, eta_min=lr/10)
-    scaler = torch.amp.GradScaler('cuda')
+    scaler = torch.amp.GradScaler(DEVICE)
     
     best_f1 = 0.0
     
@@ -127,7 +132,8 @@ def objective(trial):
         model.train()
         running_loss = 0.0
         
-        pbar = tqdm(train_loader, desc=f"Trial {trial.number+1} Epoch {epoch+1}/{EPOCHS_PER_TRIAL}")
+        pbar = tqdm(train_loader, desc=f"Trial {trial.number+1} Epoch {epoch+1}/{EPOCHS_PER_TRIAL}", 
+                    position=0, leave=True, ncols=100)
         
         for images, labels in pbar:
             images = images.to(DEVICE)
@@ -140,7 +146,7 @@ def objective(trial):
             
             optimizer.zero_grad()
             
-            with torch.autocast('cuda'):
+            with torch.autocast(DEVICE):
                 outputs = model(images)
                 loss = criterion(outputs, smooth_labels)
             
@@ -207,17 +213,11 @@ def save_results(study, output_dir):
 def main():
     print(f"Device: {DEVICE} | Trials: {N_TRIALS} | Epochs/Trial: {EPOCHS_PER_TRIAL}")
     
-    if os.path.exists("/kaggle/working"):
-        output_dir = "/kaggle/working/optuna_results"
-        db_path = "sqlite:////kaggle/working/optuna_study.db"
-    else:
-        output_dir = os.path.join(config.ROOT_DIR, "outputs", "optuna_results")
-        db_path = f"sqlite:///{os.path.join(output_dir, 'optuna_study.db')}"
-    
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    db_path = f"sqlite:///{os.path.join(OUTPUT_DIR, 'optuna_study.db')}"
     
     study = optuna.create_study(
-        study_name="skincare_ai_optimization",
+        study_name=STUDY_NAME,
         storage=db_path,
         load_if_exists=True,
         direction="maximize",
@@ -229,12 +229,12 @@ def main():
     if completed > 0:
         print(f"Resuming: {completed} trials already completed")
         if completed >= N_TRIALS:
-            save_results(study, output_dir)
+            save_results(study, OUTPUT_DIR)
             return
     
     study.optimize(objective, n_trials=N_TRIALS, show_progress_bar=True, gc_after_trial=True)
-    save_results(study, output_dir)
-    print(f"\nDone! Results saved to: {output_dir}")
+    save_results(study, OUTPUT_DIR)
+    print(f"\nDone! Results saved to: {OUTPUT_DIR}")
 
 
 if __name__ == "__main__":
