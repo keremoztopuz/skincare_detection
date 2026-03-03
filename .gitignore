@@ -38,3 +38,25 @@ Thumbs.db
 outputs/model/best_model.pth
 outputs/images/confusion_matrix.png
 outputs/images/gradcam_result.png
+
+# ==========================================
+# Xcode / iOS Specific
+# ==========================================
+# Build artifacts
+build/
+DerivedData/
+
+# Personal settings (Arkadaşınızla çakışma yaşamamak için kritik)
+*.xcuserstate
+*.xcuserdatad
+*.xcscmblueprint
+
+# Swift Package Manager
+.swiftpm/
+.build/
+
+# Xcode temporary files
+*.temp_caseoptimistic_submission
+
+# OS / macOS
+.DS_Store
