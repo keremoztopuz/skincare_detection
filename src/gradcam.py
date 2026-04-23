@@ -65,8 +65,8 @@ def visualize_gradcam(image_path, save_path=None):
     model.to(DEVICE)
     model.eval()
 
-    #last conv layer
-    target_layer = model.stages[-1].blocks[-1]
+    #target layer (stage 2 = 14x14 resolution for better spatial accuracy)
+    target_layer = model.stages[-2].blocks[-1]
 
     #gradcam
     gradcam = GradCAM(model, target_layer)
@@ -79,9 +79,9 @@ def visualize_gradcam(image_path, save_path=None):
     #generate cam
     cam, pred_class = gradcam.generate_cam(input_tensor)
 
-    #resizing
+    #resizing with bicubic interpolation for smooth heatmap
     cam_resized = np.uint8(255 * cam)
-    cam_resized = Image.fromarray(cam_resized).resize((IMG_SIZE, IMG_SIZE))
+    cam_resized = Image.fromarray(cam_resized).resize((IMG_SIZE, IMG_SIZE), Image.BICUBIC)
     cam_resized = np.array(cam_resized)
 
     #heatmap
@@ -120,5 +120,5 @@ def visualize_gradcam(image_path, save_path=None):
     return cam, pred_class
 
 if __name__ == "__main__":
-    test_image = os.path.join(DATA_DIR, "test", "acne", "acne-cystic-144.jpg")
+    test_image = os.path.join(DATA_DIR, "test", "eczema", "train_Atopi_05atopicDerm040405ok.jpg")
     visualize_gradcam(test_image, save_path=os.path.join(IMAGES_DIR, "gradcam_result.png"))

@@ -17,6 +17,8 @@ from config import (
     BATCH_SIZE,
     CHECKPOINT_DIR,
     MODEL_SAVE_PATH,
+    MODEL_NAME,
+    DETECTION_THRESHOLD,
 )
 
 from model import build_model
@@ -36,7 +38,7 @@ def validate_model(model, val_loader, criterion):
             loss = criterion(outputs, labels)
             running_loss += loss.item()
             probs = torch.sigmoid(outputs)
-            preds = (probs > 0.5).float()
+            preds = (probs > DETECTION_THRESHOLD).float()
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
         
@@ -63,12 +65,12 @@ def train_model(model, model_name=None, save_path=None, epochs=None):
     criterion = nn.BCEWithLogitsLoss(pos_weight=weights)
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs, eta_min=LEARNING_RATE/10)
-    scaler = torch.amp.GradScaler('cuda')
+    scaler = torch.amp.GradScaler(DEVICE)
     
     best_val_loss = float('inf')
     patience_counter = 0
 
-    print(f"Training model: {model_name or 'convnext-tiny'}")
+    print(f"Training model: {model_name or MODEL_NAME}")
     print(f"Device: {DEVICE}, Epochs: {epochs}, Batch Size: {BATCH_SIZE}, Learning Rate: {LEARNING_RATE}")
 
     for epoch in range(epochs):
@@ -81,7 +83,7 @@ def train_model(model, model_name=None, save_path=None, epochs=None):
 
             optimizer.zero_grad()
 
-            with torch.autocast('cuda'):
+            with torch.autocast(DEVICE):
                 outputs = model(images)
                 loss = criterion(outputs, labels)
             

@@ -4,8 +4,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import torch
 import coremltools as ct
-from model import build_model
-from config import IMG_SIZE, MODEL_SAVE_PATH, CLASS_NAMES, ROOT_DIR
+from src.model import build_model
+from src.config import IMG_SIZE, MODEL_SAVE_PATH, CLASS_NAMES, ROOT_DIR
 
 def export_to_coreml(model_path=None, output_path=None):
     model_path = model_path or MODEL_SAVE_PATH
@@ -28,7 +28,7 @@ def export_to_coreml(model_path=None, output_path=None):
     
     mlmodel.author = "Berat Kerem Öztopuz, Zeynep Aslan"
     mlmodel.license = "MIT"
-    mlmodel.short_description = "Skin Disease Classifier with 6 classes"
+    mlmodel.short_description = f"Skin Disease Classifier with {len(CLASS_NAMES)} classes"
     mlmodel.version = "1.0"
     
     os.makedirs(os.path.dirname(output_path), exist_ok=True)

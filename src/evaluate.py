@@ -9,7 +9,7 @@ from sklearn.metrics import (
 import matplotlib.pyplot as plt 
 import seaborn as sns 
 
-from config import DEVICE, MODEL_SAVE_PATH, CLASS_NAMES, IMAGES_DIR
+from config import DEVICE, MODEL_SAVE_PATH, CLASS_NAMES, IMAGES_DIR, DETECTION_THRESHOLD
 from model import build_model
 from dataset import get_dataloaders
 
@@ -37,7 +37,7 @@ def evaluate_model(model_name=None, save_path=None):
 
             outputs = model(images)
             probs = torch.sigmoid(outputs)
-            preds = (probs > 0.5).float()
+            preds = (probs > DETECTION_THRESHOLD).float()
 
             all_labels.extend(labels.cpu().numpy())
             all_predictions.extend(preds.cpu().numpy())
@@ -65,7 +65,8 @@ def print_results(metrics, all_labels, all_predictions, save_plots=True):
     
     if save_plots:
         mcm = multilabel_confusion_matrix(all_labels, all_predictions)
-        fig, axes = plt.subplots(1, 5, figsize=(20, 4))
+        num_cls = len(CLASS_NAMES)
+        fig, axes = plt.subplots(1, num_cls, figsize=(4 * num_cls, 4))
 
         for i, (ax, class_name) in enumerate(zip(axes, CLASS_NAMES)):
             sns.heatmap(mcm[i], annot=True, fmt="d", cmap="Blues", 
