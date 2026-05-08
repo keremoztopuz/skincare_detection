@@ -13,6 +13,7 @@ IMAGES_DIR = os.path.join(ROOT_DIR, "outputs", "images")
 MODEL_NAME = "convnext_tiny"
 NUM_CLASSES = 5
 DROP_RATE = 0.2
+DROP_PATH_RATE = 0.1
 
 # training parameters
 NUM_EPOCHS = 50
@@ -21,6 +22,9 @@ LEARNING_RATE = 1e-4
 WEIGHT_DECAY = 1e-5
 DETECTION_THRESHOLD = 0.3
 PATIENCE = 5
+WARMUP_EPOCHS = 5
+GRADIENT_CLIP = 1.0
+LABEL_SMOOTHING = 0.05
 CLASS_NAMES = ["Acne", "Eczema", "Psoriasis", "Ben_Lezyon", "Healthy"]
 CLASS_WEIGHTS = [1.0, 1.0, 1.0, 1.0, 0.7]
 SEED = 42
@@ -30,7 +34,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is
 
 # augmentations
 
-IMG_SIZE = 224
+IMG_SIZE = 384
 MEAN = [0.5942, 0.4433, 0.3871]
 STD = [0.2427, 0.2027, 0.1930]
 
