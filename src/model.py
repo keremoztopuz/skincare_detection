@@ -8,7 +8,8 @@ def build_model(model_name=None, num_classes=None, pretrained=True):
     model = timm.create_model(model_name,
     num_classes=num_classes,
     pretrained=pretrained,
-    drop_rate=config.DROP_RATE
+    drop_rate=config.DROP_RATE,
+    drop_path_rate=config.DROP_PATH_RATE
     )
     
     return model
