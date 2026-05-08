@@ -1,4 +1,6 @@
 import os
+import random
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -22,6 +24,7 @@ from config import (
     WARMUP_EPOCHS,
     GRADIENT_CLIP,
     LABEL_SMOOTHING,
+    SEED,
 )
 
 from model import build_model
@@ -126,5 +129,10 @@ def train_model(model, model_name=None, save_path=None, epochs=None):
     print("Training Completed")
 
 if __name__ == "__main__":
+    random.seed(SEED)
+    np.random.seed(SEED)
+    torch.manual_seed(SEED)
+    torch.cuda.manual_seed_all(SEED)
+    torch.backends.cudnn.deterministic = True
     model = build_model().to(DEVICE)
     train_model(model)
