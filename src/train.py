@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from tqdm import tqdm
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
@@ -19,6 +19,9 @@ from config import (
     MODEL_SAVE_PATH,
     MODEL_NAME,
     DETECTION_THRESHOLD,
+    WARMUP_EPOCHS,
+    GRADIENT_CLIP,
+    LABEL_SMOOTHING,
 )
 
 from model import build_model
@@ -64,7 +67,9 @@ def train_model(model, model_name=None, save_path=None, epochs=None):
     weights = torch.tensor(CLASS_WEIGHTS, dtype=torch.float32).to(DEVICE)
     criterion = nn.BCEWithLogitsLoss(pos_weight=weights)
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
-    scheduler = CosineAnnealingLR(optimizer, T_max=epochs, eta_min=LEARNING_RATE/10)
+    warmup_scheduler = LinearLR(optimizer, start_factor=0.01, total_iters=WARMUP_EPOCHS)
+    cosine_scheduler = CosineAnnealingLR(optimizer, T_max=epochs - WARMUP_EPOCHS, eta_min=LEARNING_RATE/10)
+    scheduler = SequentialLR(optimizer, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[WARMUP_EPOCHS])
     scaler = torch.amp.GradScaler(DEVICE)
     
     best_val_loss = float('inf')
@@ -80,6 +85,7 @@ def train_model(model, model_name=None, save_path=None, epochs=None):
         for images, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}"):
             images = images.to(DEVICE)
             labels = labels.to(DEVICE)
+            labels = labels.clamp(LABEL_SMOOTHING, 1.0 - LABEL_SMOOTHING)
 
             optimizer.zero_grad()
 
@@ -88,6 +94,8 @@ def train_model(model, model_name=None, save_path=None, epochs=None):
                 loss = criterion(outputs, labels)
             
             scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), GRADIENT_CLIP)
             scaler.step(optimizer)
             scaler.update()
 
