@@ -4,13 +4,15 @@ A deep learning model for classifying skin diseases using ConvNeXt-Tiny architec
 
 ## Authors
 - Berat Kerem Öztopuz
-- Zeynep Aslan
 
 ## Model Architecture
 - **Base Model:** ConvNeXt-Tiny (pretrained on ImageNet)
+- **Input Size:** 384×384
 - **Output:** 5 classes with Sigmoid activation (multi-label support)
-- **Loss Function:** BCEWithLogitsLoss
-- **Optimizer:** AdamW with CosineAnnealingLR
+- **Loss Function:** BCEWithLogitsLoss with label smoothing (0.05)
+- **Optimizer:** AdamW (weight_decay=0.05) with Warmup + CosineAnnealing scheduler
+- **Regularization:** Dropout (0.2), Drop Path (0.1), Gradient Clipping (1.0)
+- **Reproducibility:** Seed fixed (42) across all random generators
 
 ## Classes
 | Class | Description |
@@ -26,19 +28,33 @@ A deep learning model for classifying skin diseases using ConvNeXt-Tiny architec
 ### Performance Metrics
 | Metric | Score |
 |--------|-------|
-| Accuracy | 94.00% |
-| Precision | 95.06% |
-| Recall | 94.54% |
-| F1 Score | 94.78% |
+| Accuracy | 94.49% |
+| Precision | 94.56% |
+| Recall | 96.16% |
+| F1 Score | 95.33% |
 
 ### Per-Class Performance
 | Class | Precision | Recall | F1-Score |
 |-------|-----------|--------|----------|
-| Acne | 93% | 97% | 95% |
-| Eczema | 89% | 87% | 88% |
-| Psoriasis | 93% | 91% | 92% |
-| Ben_Lezyon | 99% | 97% | 98% |
-| Healthy | 100% | 99% | 100% |
+| Acne | 93% | 99% | 96% |
+| Eczema | 93% | 90% | 92% |
+| Psoriasis | 90% | 94% | 92% |
+| Ben_Lezyon | 96% | 99% | 97% |
+| Healthy | 100% | 100% | 100% |
+
+### Training Configuration
+| Parameter | Value |
+|-----------|-------|
+| Image Size | 384×384 |
+| Batch Size | 32 |
+| Learning Rate | 1e-4 |
+| Weight Decay | 0.05 |
+| Warmup Epochs | 5 |
+| Gradient Clip | 1.0 |
+| Label Smoothing | 0.05 |
+| Drop Rate | 0.2 |
+| Drop Path Rate | 0.1 |
+| Early Stopping | Patience 5 |
 
 ### Confusion Matrix
 ![Confusion Matrix](outputs/images/confusion_matrix.png)

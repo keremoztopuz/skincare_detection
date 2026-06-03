@@ -4,8 +4,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import torch
 import coremltools as ct
-from src.model import build_model
-from src.config import IMG_SIZE, MODEL_SAVE_PATH, CLASS_NAMES, ROOT_DIR
+from model import build_model
+from config import IMG_SIZE, MODEL_SAVE_PATH, CLASS_NAMES, ROOT_DIR
 
 def export_to_coreml(model_path=None, output_path=None):
     model_path = model_path or MODEL_SAVE_PATH
@@ -23,7 +23,8 @@ def export_to_coreml(model_path=None, output_path=None):
     mlmodel = ct.convert(
         traced_model,
         inputs=[ct.TensorType(shape=example_input.shape, name="image")],
-        minimum_deployment_target=ct.target.iOS18
+        minimum_deployment_target=ct.target.iOS18,
+        compute_precision=ct.precision.FLOAT32
     )
     
     mlmodel.author = "Berat Kerem Öztopuz, Zeynep Aslan"

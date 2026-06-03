@@ -32,7 +32,6 @@ from dataset import get_dataloaders
 
 def validate_model(model, val_loader, criterion):
     model.eval()
-
     running_loss = 0.0
     all_preds = []
     all_labels = []
@@ -49,14 +48,12 @@ def validate_model(model, val_loader, criterion):
             all_labels.extend(labels.cpu().numpy())
         
     avg_loss = running_loss / len(val_loader)
-
     acc = accuracy_score(all_labels, all_preds)
     prec = precision_score(all_labels, all_preds, average="macro", zero_division=0)
     rec = recall_score(all_labels, all_preds, average="macro", zero_division=0)
     f1 = f1_score(all_labels, all_preds, average="macro", zero_division=0)
     
     print(f"Val Loss: {avg_loss:.4f} | Acc: {acc:.4f} | Prec: {prec:.4f} | Rec: {rec:.4f} | F1: {f1:.4f}")
-
     return avg_loss
 
 def train_model(model, model_name=None, save_path=None, epochs=None):
@@ -69,6 +66,7 @@ def train_model(model, model_name=None, save_path=None, epochs=None):
 
     weights = torch.tensor(CLASS_WEIGHTS, dtype=torch.float32).to(DEVICE)
     criterion = nn.BCEWithLogitsLoss(pos_weight=weights)
+    
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
     warmup_scheduler = LinearLR(optimizer, start_factor=0.01, total_iters=WARMUP_EPOCHS)
     cosine_scheduler = CosineAnnealingLR(optimizer, T_max=epochs - WARMUP_EPOCHS, eta_min=LEARNING_RATE/10)
@@ -79,60 +77,41 @@ def train_model(model, model_name=None, save_path=None, epochs=None):
     patience_counter = 0
 
     print(f"Training model: {model_name or MODEL_NAME}")
-    print(f"Device: {DEVICE}, Epochs: {epochs}, Batch Size: {BATCH_SIZE}, Learning Rate: {LEARNING_RATE}")
-
     for epoch in range(epochs):
         model.train()
         running_loss = 0.0
-
         for images, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}"):
-            images = images.to(DEVICE)
-            labels = labels.to(DEVICE)
+            images, labels = images.to(DEVICE), labels.to(DEVICE)
             labels = labels.clamp(LABEL_SMOOTHING, 1.0 - LABEL_SMOOTHING)
-
             optimizer.zero_grad()
-
             with torch.autocast(DEVICE):
                 outputs = model(images)
                 loss = criterion(outputs, labels)
-            
             scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), GRADIENT_CLIP)
+            if GRADIENT_CLIP > 0:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), GRADIENT_CLIP)
             scaler.step(optimizer)
             scaler.update()
-
             running_loss += loss.item()
-
-        val_loss = validate_model(model, val_loader, criterion)
+        
         scheduler.step()
-
+        val_loss = validate_model(model, val_loader, criterion)
+        
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            torch.save(model.state_state_dict() if hasattr(model, 'state_dict') else model, save_path)
             patience_counter = 0
-            torch.save(model.state_dict(), save_path)
-            print(f"Saved best model to {save_path}")
         else:
-            patience_counter +=1
-            if patience_counter >= PATIENCE:
-                print(f"Early stopping at epoch {epoch+1}")
-                break
-
-        checkpoint_path = os.path.join(CHECKPOINT_DIR, f"Epoch_{epoch+1}.pth")
-        torch.save({
-            'Epoch': epoch,
-            'Model_state_dict': model.state_dict(),
-            'Optimizer_state_dict': optimizer.state_dict(),
-            'Val_loss': val_loss,
-        }, checkpoint_path)
-
-    print("Training Completed")
+            patience_counter += 1
+        
+        if patience_counter >= PATIENCE:
+            break
 
 if __name__ == "__main__":
+    torch.manual_seed(SEED)
     random.seed(SEED)
     np.random.seed(SEED)
-    torch.manual_seed(SEED)
-    torch.cuda.manual_seed_all(SEED)
-    torch.backends.cudnn.deterministic = True
-    model = build_model().to(DEVICE)
+    model = build_model()
+    model.to(DEVICE)
     train_model(model)

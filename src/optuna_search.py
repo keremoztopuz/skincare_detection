@@ -10,7 +10,9 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from tqdm import tqdm
 from sklearn.metrics import f1_score
+# pyrefly: ignore [missing-import]
 import optuna
+# pyrefly: ignore [missing-import]
 from optuna.trial import TrialState
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -189,6 +191,7 @@ def save_results(study, output_dir):
     df.to_csv(os.path.join(output_dir, "all_trials.csv"), index=False)
     
     try:
+        # pyrefly: ignore [missing-import]
         import optuna.visualization as vis
         figures_dir = os.path.join(output_dir, "figures")
         os.makedirs(figures_dir, exist_ok=True)

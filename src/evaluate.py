@@ -8,6 +8,7 @@ from sklearn.metrics import (
 )
 import matplotlib.pyplot as plt 
 import seaborn as sns 
+import numpy as np
 
 from config import DEVICE, MODEL_SAVE_PATH, CLASS_NAMES, IMAGES_DIR, DETECTION_THRESHOLD
 from model import build_model
@@ -64,6 +65,40 @@ def print_results(metrics, all_labels, all_predictions, save_plots=True):
     print(classification_report(all_labels, all_predictions, target_names=CLASS_NAMES))
     
     if save_plots:
+        os.makedirs(IMAGES_DIR, exist_ok=True)
+
+        labels_array = np.asarray(all_labels)
+        predictions_array = np.asarray(all_predictions)
+        class_accuracy = (labels_array == predictions_array).mean(axis=0)
+        class_precision = precision_score(labels_array, predictions_array, average=None, zero_division=0)
+        class_recall = recall_score(labels_array, predictions_array, average=None, zero_division=0)
+        class_f1 = f1_score(labels_array, predictions_array, average=None, zero_division=0)
+
+        metric_names = ["Accuracy", "Precision", "Recall", "F1"]
+        class_metrics = np.vstack([class_accuracy, class_precision, class_recall, class_f1])
+        x = np.arange(len(CLASS_NAMES))
+        width = 0.2
+
+        fig_metrics, ax_metrics = plt.subplots(figsize=(12, 6))
+        colors = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626"]
+        for idx, (metric_name, metric_values) in enumerate(zip(metric_names, class_metrics)):
+            offset = (idx - 1.5) * width
+            bars = ax_metrics.bar(x + offset, metric_values, width, label=metric_name, color=colors[idx])
+            ax_metrics.bar_label(bars, labels=[f"{value:.2f}" for value in metric_values], padding=2, fontsize=8)
+
+        ax_metrics.set_xticks(x)
+        ax_metrics.set_xticklabels(CLASS_NAMES, rotation=25, ha="right")
+        ax_metrics.set_ylim(0, 1.08)
+        ax_metrics.set_ylabel("score")
+        ax_metrics.set_title("Class-based test metrics")
+        ax_metrics.legend(ncol=4, loc="upper center", bbox_to_anchor=(0.5, 1.12))
+        ax_metrics.grid(axis="y", linestyle="--", alpha=0.35)
+        plt.tight_layout()
+        metrics_path = os.path.join(IMAGES_DIR, "test_metrics.png")
+        plt.savefig(metrics_path, dpi=150)
+        plt.close(fig_metrics)
+        print(f"metrics plot saved to: {metrics_path}")
+
         mcm = multilabel_confusion_matrix(all_labels, all_predictions)
         num_cls = len(CLASS_NAMES)
         fig, axes = plt.subplots(1, num_cls, figsize=(4 * num_cls, 4))
@@ -79,11 +114,31 @@ def print_results(metrics, all_labels, all_predictions, save_plots=True):
         plt.suptitle(f"confusion matrix - accuracy: {metrics['Accuracy']*100:.2f}%")
         plt.xticks(rotation=45, ha="right")
         plt.tight_layout()
-        plt.savefig(os.path.join(IMAGES_DIR, "confusion_matrix.png"))
-        print("\nconfusion matrix saved to: confusion_matrix.png")
+        confusion_path = os.path.join(IMAGES_DIR, "confusion_matrix.png")
+        plt.savefig(confusion_path, dpi=150)
+        plt.close(fig)
+        print(f"\nconfusion matrix saved to: {confusion_path}")
 
         for i, class_name in enumerate(CLASS_NAMES):
             print(f"{class_name}: TN={mcm[i,0,0]}, FP={mcm[i,0,1]}, FN={mcm[i,1,0]}, TP={mcm[i,1,1]}")
+
+        true_classes = np.argmax(all_labels, axis=1)
+        pred_classes = np.argmax(all_predictions, axis=1)
+        cm = confusion_matrix(true_classes, pred_classes)
+
+        fig2, ax2 = plt.subplots(figsize=(8, 6))
+        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
+                    xticklabels=CLASS_NAMES, yticklabels=CLASS_NAMES, ax=ax2)
+        ax2.set_xlabel("predicted")
+        ax2.set_ylabel("true")
+        ax2.set_title(f"full confusion matrix - accuracy: {metrics['Accuracy']*100:.2f}%")
+        plt.xticks(rotation=45, ha="right")
+        plt.yticks(rotation=0)
+        plt.tight_layout()
+        full_confusion_path = os.path.join(IMAGES_DIR, "full_confusion_matrix.png")
+        plt.savefig(full_confusion_path, dpi=150)
+        plt.close(fig2)
+        print(f"full confusion matrix saved to: {full_confusion_path}")
 
 if __name__ == "__main__":
     metrics, all_labels, all_predictions = evaluate_model()
