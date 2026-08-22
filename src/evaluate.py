@@ -1,21 +1,23 @@
+import argparse
 import os 
 import torch
 from tqdm import tqdm 
 from sklearn.metrics import (
-    accuracy_score, precision_score, recall_score, 
-    f1_score, classification_report, confusion_matrix, 
-    hamming_loss, multilabel_confusion_matrix
+    precision_score, recall_score,
+    f1_score, classification_report, confusion_matrix,
+    multilabel_confusion_matrix
 )
 import matplotlib.pyplot as plt 
 import seaborn as sns 
 import numpy as np
 
-from config import DEVICE, MODEL_SAVE_PATH, CLASS_NAMES, IMAGES_DIR, DETECTION_THRESHOLD
+from config import DEVICE, MODEL_SAVE_PATH, CLASS_NAMES, IMAGES_DIR
 from model import build_model
 from dataset import get_dataloaders
+from utils import calculate_metrics, load_thresholds
 
 # evaluates trained model on test set
-def evaluate_model(model_name=None, save_path=None):
+def evaluate_model(model_name=None, save_path=None, thresholds_path=None):
     model_path = save_path or MODEL_SAVE_PATH
 
     if not os.path.exists(model_path):
@@ -27,7 +29,7 @@ def evaluate_model(model_name=None, save_path=None):
     model.eval()
 
     all_labels = []
-    all_predictions = []
+    all_probabilities = []
 
     train_loader, val_loader, test_loader = get_dataloaders()
 
@@ -38,27 +40,25 @@ def evaluate_model(model_name=None, save_path=None):
 
             outputs = model(images)
             probs = torch.sigmoid(outputs)
-            preds = (probs > DETECTION_THRESHOLD).float()
-
             all_labels.extend(labels.cpu().numpy())
-            all_predictions.extend(preds.cpu().numpy())
+            all_probabilities.extend(probs.cpu().numpy())
 
-    metrics = {
-        "Accuracy": accuracy_score(all_labels, all_predictions),
-        "Precision": precision_score(all_labels, all_predictions, average="macro", zero_division=0),
-        "Recall": recall_score(all_labels, all_predictions, average="macro", zero_division=0),
-        "F1": f1_score(all_labels, all_predictions, average="macro", zero_division=0)
-    }
+    thresholds = load_thresholds(thresholds_path) if thresholds_path else load_thresholds()
+    metrics, all_predictions = calculate_metrics(all_labels, all_probabilities, thresholds)
+    print("Thresholds:", dict(zip(CLASS_NAMES, map(float, thresholds))))
 
     return metrics, all_labels, all_predictions
 
 # prints metrics and saves confusion matrix
 def print_results(metrics, all_labels, all_predictions, save_plots=True):
     print(f"\n{'='*50}")
-    print(f"Accuracy:  {metrics['Accuracy']:.4f} ({metrics['Accuracy']*100:.2f}%)")
+    print(f"Top-1 Accuracy: {metrics['Top1Accuracy']:.4f} ({metrics['Top1Accuracy']*100:.2f}%)")
+    print(f"Exact Match:    {metrics['Accuracy']:.4f} ({metrics['Accuracy']*100:.2f}%)")
     print(f"Precision: {metrics['Precision']:.4f}")
     print(f"Recall:    {metrics['Recall']:.4f}")
     print(f"F1 Score:  {metrics['F1']:.4f}")
+    print(f"AUROC:     {metrics['AUROC']:.4f}")
+    print(f"Labels/Image: {metrics['LabelsPerImage']:.2f}")
     print(f"{'='*50}")
     
     print("\nclassification report:")
@@ -141,5 +141,12 @@ def print_results(metrics, all_labels, all_predictions, save_plots=True):
         print(f"full confusion matrix saved to: {full_confusion_path}")
 
 if __name__ == "__main__":
-    metrics, all_labels, all_predictions = evaluate_model()
+    parser = argparse.ArgumentParser(description="Evaluate a trained skin-condition model")
+    parser.add_argument("--model-path", default=None)
+    parser.add_argument("--thresholds-path", default=None)
+    args = parser.parse_args()
+    metrics, all_labels, all_predictions = evaluate_model(
+        save_path=args.model_path,
+        thresholds_path=args.thresholds_path,
+    )
     print_results(metrics, all_labels, all_predictions)
