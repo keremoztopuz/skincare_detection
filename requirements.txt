@@ -11,3 +11,4 @@ optuna>=3.4.0
 plotly>=5.18.0
 kaleido>=0.2.1
 coremltools>=7.0
+opencv-python-headless>=4.8.0  # optional: --face-priority reporting in clean_and_split
