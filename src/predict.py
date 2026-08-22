@@ -3,8 +3,9 @@ import torch
 from PIL import Image
 from torchvision import transforms
 
-from config import DEVICE, MODEL_SAVE_PATH, CLASS_NAMES, DATA_DIR, IMG_SIZE, MEAN, STD, DETECTION_THRESHOLD
+from config import DEVICE, MODEL_SAVE_PATH, CLASS_NAMES, DATA_DIR, IMG_SIZE, MEAN, STD
 from model import build_model
+from utils import load_thresholds
 
 TEST_IMAGE_PATH = os.path.join(DATA_DIR, "test", "Acne", "acne-cystic-144.jpg")
 
@@ -29,7 +30,12 @@ def predict(image_path):
         outputs = model(input_tensor)
         probabilities = torch.sigmoid(outputs)
         probs = probabilities[0].tolist()
-        detected = {name: prob for name, prob in zip(CLASS_NAMES, probs) if prob > DETECTION_THRESHOLD}
+        thresholds = load_thresholds()
+        detected = {
+            name: prob
+            for name, prob, threshold in zip(CLASS_NAMES, probs, thresholds)
+            if prob >= threshold
+        }
         confidence, predicted_idx = torch.max(probabilities, 1)
         predicted_class = CLASS_NAMES[predicted_idx.item()]
 
@@ -37,6 +43,7 @@ def predict(image_path):
             "Class": predicted_class,
             "Confidence": confidence.item(),
             "Probabilities": dict(zip(CLASS_NAMES, probs)),
+            "Thresholds": dict(zip(CLASS_NAMES, map(float, thresholds))),
             "Detected": detected
         }
 
