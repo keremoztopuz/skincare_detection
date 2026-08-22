@@ -54,9 +54,25 @@ def calculate_metrics(labels, probabilities, thresholds):
     except ValueError:
         auroc = float("nan")
 
+    # Healthy negatives carry an all-zero label row; argmax on such a row
+    # is meaningless, so Top-1 only scores rows with a positive label.
+    positive_rows = labels.sum(axis=1) > 0
+    if positive_rows.any():
+        top1 = accuracy_score(
+            labels[positive_rows].argmax(axis=1),
+            probabilities[positive_rows].argmax(axis=1),
+        )
+    else:
+        top1 = float("nan")
+    negative_rows = ~positive_rows
+    if negative_rows.any():
+        negative_reject = float((predictions[negative_rows].sum(axis=1) == 0).mean())
+    else:
+        negative_reject = float("nan")
     return {
         "Accuracy": accuracy_score(labels, predictions),
-        "Top1Accuracy": accuracy_score(labels.argmax(axis=1), probabilities.argmax(axis=1)),
+        "Top1Accuracy": top1,
+        "NegativeReject": negative_reject,
         "Precision": precision_score(labels, predictions, average="macro", zero_division=0),
         "Recall": recall_score(labels, predictions, average="macro", zero_division=0),
         "F1": f1_score(labels, predictions, average="macro", zero_division=0),
