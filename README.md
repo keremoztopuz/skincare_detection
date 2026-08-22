@@ -1,6 +1,6 @@
-# Skin Disease Classification Model
+# Skin Condition Orchestration Model
 
-A deep learning model for classifying skin diseases using ConvNeXt-Tiny architecture with multi-label prediction support.
+A ConvNeXt-Tiny based multi-label model for detecting acne, eczema, eye bags, and wrinkles from skin/face images.
 
 ## Authors
 - Berat Kerem Öztopuz
@@ -8,9 +8,11 @@ A deep learning model for classifying skin diseases using ConvNeXt-Tiny architec
 ## Model Architecture
 - **Base Model:** ConvNeXt-Tiny (pretrained on ImageNet)
 - **Input Size:** 384×384
-- **Output:** 5 classes with Sigmoid activation (multi-label support)
-- **Loss Function:** BCEWithLogitsLoss with label smoothing (0.05)
+- **Output:** 4 independent logits interpreted with Sigmoid
+- **Fine-tuning:** Head-only warmup, then final ConvNeXt stage at a reduced learning rate
+- **Loss Function:** BCEWithLogitsLoss with training-set-derived positive weights
 - **Optimizer:** AdamW (weight_decay=0.05) with Warmup + CosineAnnealing scheduler
+- **Thresholds:** Precision-aware per-class thresholds calibrated on the validation set
 - **Regularization:** Dropout (0.2), Drop Path (0.1), Gradient Clipping (1.0)
 - **Reproducibility:** Seed fixed (42) across all random generators
 
@@ -19,42 +21,34 @@ A deep learning model for classifying skin diseases using ConvNeXt-Tiny architec
 |-------|-------------|
 | Acne | Inflammatory skin condition with pimples and lesions |
 | Eczema | Chronic skin condition causing itchy, inflamed patches |
-| Psoriasis | Autoimmune disease causing scaly, red skin patches |
-| Ben_Lezyon | Benign skin lesions and moles |
-| Healthy | Normal, healthy skin without conditions |
+| Eye_Bags | Under-eye bag appearance |
+| Wrinkles | Visible facial wrinkles |
 
 ## Results
 
-### Performance Metrics
+### Current Checkpoint Baseline
+
+Measured on the current 56-image test split before retraining with the latest pipeline changes:
+
 | Metric | Score |
 |--------|-------|
-| Accuracy | 94.49% |
-| Precision | 94.56% |
-| Recall | 96.16% |
-| F1 Score | 95.33% |
-
-### Per-Class Performance
-| Class | Precision | Recall | F1-Score |
-|-------|-----------|--------|----------|
-| Acne | 93% | 99% | 96% |
-| Eczema | 93% | 90% | 92% |
-| Psoriasis | 90% | 94% | 92% |
-| Ben_Lezyon | 96% | 99% | 97% |
-| Healthy | 100% | 100% | 100% |
+| Exact-match Accuracy | 58.93% |
+| Macro Precision | 70.16% |
+| Macro Recall | 71.82% |
+| Macro F1 | 68.52% |
 
 ### Training Configuration
 | Parameter | Value |
 |-----------|-------|
 | Image Size | 384×384 |
-| Batch Size | 32 |
+| Batch Size | 16 |
 | Learning Rate | 1e-4 |
 | Weight Decay | 0.05 |
-| Warmup Epochs | 5 |
+| Warmup Epochs | 2 |
 | Gradient Clip | 1.0 |
-| Label Smoothing | 0.05 |
 | Drop Rate | 0.2 |
 | Drop Path Rate | 0.1 |
-| Early Stopping | Patience 5 |
+| Early Stopping | Patience 8, monitored with validation AUROC |
 
 ### Confusion Matrix
 ![Confusion Matrix](outputs/images/confusion_matrix.png)
@@ -80,7 +74,7 @@ Model's attention areas for disease detection:
 │   ├── model/          # Saved model weights
 │   ├── checkpoints/    # Training checkpoints
 │   └── images/         # Generated visualizations
-└── FINAL_SPLIT/
+└── orchestration_data/
     ├── train/
     ├── val/
     └── test/
@@ -96,7 +90,15 @@ python train.py
 
 ### Evaluation
 ```bash
+python calibrate.py
 python evaluate.py
+```
+
+To evaluate the checkpoint selected specifically for Top-1 accuracy:
+
+```bash
+python calibrate.py --model-path ../outputs/model/best_top1_model.pth --thresholds-path ../outputs/model/top1_thresholds.json
+python evaluate.py --model-path ../outputs/model/best_top1_model.pth --thresholds-path ../outputs/model/top1_thresholds.json
 ```
 
 ### Prediction
