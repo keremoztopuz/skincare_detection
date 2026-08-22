@@ -51,8 +51,10 @@ def dhash(image, hash_size=8):
 
 
 def collect_sources():
+    # The previous dataset lives in the backup tree by the time we read it,
+    # so pool from the backup splits plus the freshly downloaded providers.
     sources = defaultdict(list)
-    pools = [config.TRAIN_DIR, config.VAL_DIR, config.TEST_DIR]
+    pools = [os.path.join(BACKUP_DIR, split) for split in SPLITS]
     for provider in ("scin", "dermnet"):
         pools.append(os.path.join(DOWNLOADS, provider))
     for pool in pools:
@@ -128,11 +130,17 @@ def main():
     arguments = parser.parse_args()
 
     rng = random.Random(SEED)
-    sources = collect_sources()
 
-    if os.path.isdir(config.DATA_DIR) and not os.path.isdir(BACKUP_DIR):
-        shutil.move(config.DATA_DIR, BACKUP_DIR)
-        print(f"eski veri yedeklendi: {BACKUP_DIR}")
+    # Back up (or clear) the current split BEFORE collecting paths, so every
+    # pooled path stays readable while images are hashed and copied.
+    if os.path.isdir(config.DATA_DIR):
+        if os.path.isdir(BACKUP_DIR):
+            shutil.rmtree(config.DATA_DIR)
+        else:
+            shutil.move(config.DATA_DIR, BACKUP_DIR)
+            print(f"eski veri yedeklendi: {BACKUP_DIR}")
+
+    sources = collect_sources()
 
     print(f"{'sinif':<10} {'ham':>5} {'grup':>5} {'elenen':>6} {'train':>6} {'val':>4} {'test':>5}")
     for class_name, paths in sources.items():
