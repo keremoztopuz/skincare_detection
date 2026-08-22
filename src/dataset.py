@@ -46,7 +46,9 @@ class SkinDataset(Dataset):
             image = self.transform(image)
 
         target = torch.zeros(len(config.CLASS_NAMES))
-        target[label] = 1
+        if label >= 0:
+            target[label] = 1
+        # label < 0 (Healthy negatives) keeps the all-zero target.
 
         return image, target
 
@@ -64,12 +66,23 @@ def load_data(DATA_DIR):
             if file.lower().endswith(('.jpg', '.png', '.jpeg')):
                 images.append(os.path.join(CLASS_DIR, file))
                 labels.append(label) 
+    negative_dir = os.path.join(DATA_DIR, config.NEGATIVE_CLASS_NAME)
+    if os.path.isdir(negative_dir):
+        for file in sorted(os.listdir(negative_dir)):
+            if file.lower().endswith(('.jpg', '.png', '.jpeg')):
+                images.append(os.path.join(negative_dir, file))
+                labels.append(config.NEGATIVE_LABEL)
     return images, labels
 
 def calculate_pos_weights(labels, num_classes=len(config.CLASS_NAMES)):
-    """BCE pos_weight = negative sample count / positive sample count."""
+    """BCE pos_weight = negative sample count / positive sample count.
+
+    Healthy negatives (label < 0) contribute to every class's negative
+    count but to no positive count, so they raise no pos_weight.
+    """
     label_tensor = torch.as_tensor(labels, dtype=torch.long)
-    positives = torch.bincount(label_tensor, minlength=num_classes).float()
+    positive_tensor = label_tensor[label_tensor >= 0]
+    positives = torch.bincount(positive_tensor, minlength=num_classes).float()
     negatives = len(labels) - positives
     return negatives / positives.clamp_min(1.0)
 
