@@ -95,9 +95,11 @@ Bellek toplamda ~10 GB'ın altında kalır; batch 32'ye çıkmak bile mümkün
 (`config.py`'de `BATCH_SIZE`). MPS desteği kodda hazır, AMP Apple Silicon'da
 otomatik kapalı (FP32 — doğru davranış).
 
-- Ölçülen adım süresi: SMOKE_STEP_PLACEHOLDER
-- Tahmini epoch süresi (genişletilmiş veriyle): EPOCH_PLACEHOLDER
-- Erken durdurmalı tam koşu: TOTAL_PLACEHOLDER
+- Ölçülen adım süresi (bu makinede, MPS, batch 16 @384²): **1.7 s/batch ≈ 9.4 görüntü/sn**
+  (son ConvNeXt aşaması + kafa eğitilirken; MPS bellek kullanımı ~0.4 GB)
+- Tahmini epoch süresi (genişletilmiş ~960 train görüntüsüyle): **~2 dk**
+- Erken durdurmalı tam koşu: **~1 saat** (50 epoch tavanında ~1.7 saat;
+  fansız kasada kısılmayla en kötü ~2.5 saat)
 
 Optuna taraması (30 deneme) bu makinede ~gece ölçeğidir; önce tek reçeteyle
 eğit, gerekirse sonra tara.
