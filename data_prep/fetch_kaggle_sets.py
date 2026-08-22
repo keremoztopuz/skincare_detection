@@ -69,9 +69,8 @@ def extract_classes():
             os.makedirs(class_dir, exist_ok=True)
             members = sorted(
                 name for name in archive.namelist()
-                if f"/{source_folder}/" in name
+                if name.startswith(f"train/{source_folder}/")
                 and name.lower().endswith((".jpg", ".jpeg", ".png"))
-                and "/train/" in name
             )[:MAX_PER_CLASS]
             for member in members:
                 dest = os.path.join(class_dir, os.path.basename(member))
