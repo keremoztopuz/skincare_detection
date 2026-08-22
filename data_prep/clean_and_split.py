@@ -55,12 +55,12 @@ def collect_sources():
     # so pool from the backup splits plus the freshly downloaded providers.
     sources = defaultdict(list)
     pools = [os.path.join(BACKUP_DIR, split) for split in SPLITS]
-    for provider in ("scin", "dermnet"):
+    for provider in ("scin", "dermnet", "staged"):
         pools.append(os.path.join(DOWNLOADS, provider))
     for pool in pools:
         if not os.path.isdir(pool):
             continue
-        for class_name in config.CLASS_NAMES:
+        for class_name in list(config.CLASS_NAMES) + [config.NEGATIVE_CLASS_NAME]:
             class_dir = os.path.join(pool, class_name)
             if not os.path.isdir(class_dir):
                 continue
