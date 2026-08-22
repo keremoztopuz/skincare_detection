@@ -1,4 +1,7 @@
 import os 
+import hashlib
+import warnings
+from collections import defaultdict
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
@@ -6,15 +9,12 @@ from PIL import Image
 import config
 
 train_transform = transforms.Compose([
-    transforms.RandomResizedCrop(config.IMG_SIZE, scale=(0.7, 1.0)),
+    transforms.RandomResizedCrop(config.IMG_SIZE, scale=(0.92, 1.0)),
     transforms.RandomHorizontalFlip(p=0.5),
-    transforms.RandomVerticalFlip(p=0.2),
-    transforms.RandomRotation(30),
-    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05),
-    transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1)),
+    transforms.RandomRotation(7),
+    transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.05, hue=0.01),
     transforms.ToTensor(),
     transforms.Normalize(mean=config.MEAN, std=config.STD),
-    transforms.RandomErasing(p=0.3, scale=(0.02, 0.2), ratio=(0.3, 3.3)),
 ])
 
 val_transform = transforms.Compose([
@@ -55,11 +55,42 @@ def load_data(DATA_DIR):
         if not os.path.exists(CLASS_DIR):
             continue
         label = config.CLASS_NAMES.index(class_name)
-        for file in os.listdir(CLASS_DIR):
+        for file in sorted(os.listdir(CLASS_DIR)):
             if file.lower().endswith(('.jpg', '.png', '.jpeg')):
                 images.append(os.path.join(CLASS_DIR, file))
                 labels.append(label) 
     return images, labels
+
+def calculate_pos_weights(labels, num_classes=len(config.CLASS_NAMES)):
+    """BCE pos_weight = negative sample count / positive sample count."""
+    label_tensor = torch.as_tensor(labels, dtype=torch.long)
+    positives = torch.bincount(label_tensor, minlength=num_classes).float()
+    negatives = len(labels) - positives
+    return negatives / positives.clamp_min(1.0)
+
+def audit_split_leakage(split_dirs=None):
+    """Find byte-identical images appearing in more than one data split."""
+    split_dirs = split_dirs or {
+        "train": config.TRAIN_DIR,
+        "val": config.VAL_DIR,
+        "test": config.TEST_DIR,
+    }
+    hashes = defaultdict(list)
+    for split_name, split_dir in split_dirs.items():
+        image_paths, _ = load_data(split_dir)
+        for image_path in image_paths:
+            with open(image_path, "rb") as image_file:
+                digest = hashlib.sha256(image_file.read()).hexdigest()
+            hashes[digest].append((split_name, image_path))
+
+    leaks = [paths for paths in hashes.values() if len({p[0] for p in paths}) > 1]
+    if leaks:
+        warnings.warn(
+            f"Found {len(leaks)} byte-identical image group(s) across data splits. "
+            "Metrics may be optimistic; rebuild the splits after grouping duplicates.",
+            stacklevel=2,
+        )
+    return leaks
 
 def get_dataloaders(batch_size=config.BATCH_SIZE, shuffle=True):
     train_images, train_labels = load_data(config.TRAIN_DIR)
@@ -70,8 +101,8 @@ def get_dataloaders(batch_size=config.BATCH_SIZE, shuffle=True):
     val_dataset = SkinDataset(val_images, val_labels, transform=val_transform)
     test_dataset = SkinDataset(test_images, test_labels, transform=val_transform)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=4, pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=0, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=True)
 
     return train_loader, val_loader, test_loader
