@@ -27,6 +27,7 @@ def export_to_coreml(model_path=None, output_path=None, palettize=False):
     mlmodel = ct.convert(
         traced_model,
         inputs=[ct.TensorType(shape=example_input.shape, name="image")],
+        outputs=[ct.TensorType(name="scores")],
         minimum_deployment_target=ct.target.iOS18,
         compute_precision=ct.precision.FLOAT16,
     )
