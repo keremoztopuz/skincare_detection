@@ -17,7 +17,7 @@ from dataset import get_dataloaders
 from utils import calculate_metrics, load_thresholds
 
 # evaluates trained model on test set
-def evaluate_model(model_name=None, save_path=None, thresholds_path=None):
+def evaluate_model(model_name=None, save_path=None, thresholds_path=None, tta=False):
     model_path = save_path or MODEL_SAVE_PATH
 
     if not os.path.exists(model_path):
@@ -38,8 +38,11 @@ def evaluate_model(model_name=None, save_path=None, thresholds_path=None):
             images = images.to(DEVICE)
             labels = labels.to(DEVICE)
 
-            outputs = model(images)
-            probs = torch.sigmoid(outputs)
+            probs = torch.sigmoid(model(images))
+            if tta:
+                # Horizontal-flip test-time augmentation: average the two views.
+                flipped_probs = torch.sigmoid(model(torch.flip(images, dims=[3])))
+                probs = (probs + flipped_probs) / 2.0
             all_labels.extend(labels.cpu().numpy())
             all_probabilities.extend(probs.cpu().numpy())
 
@@ -144,9 +147,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate a trained skin-condition model")
     parser.add_argument("--model-path", default=None)
     parser.add_argument("--thresholds-path", default=None)
+    parser.add_argument("--tta", action="store_true", help="average predictions with a horizontal flip")
     args = parser.parse_args()
     metrics, all_labels, all_predictions = evaluate_model(
         save_path=args.model_path,
         thresholds_path=args.thresholds_path,
+        tta=args.tta,
     )
     print_results(metrics, all_labels, all_predictions)
