@@ -1,13 +1,36 @@
 import argparse
+import json
 import os
 
 import torch
 from tqdm import tqdm
 
-from config import CLASS_NAMES, DEVICE, MODEL_SAVE_PATH, THRESHOLDS_SAVE_PATH
+from config import CLASS_NAMES, DEVICE, MODEL_SAVE_PATH, ROOT_DIR, THRESHOLDS_SAVE_PATH
 from dataset import get_dataloaders
 from model import build_model
 from utils import calibrate_thresholds, calculate_metrics, save_thresholds
+
+TEMPERATURE_SAVE_PATH = os.path.join(ROOT_DIR, "outputs", "model", "temperature.json")
+
+
+def fit_temperature(logits, targets):
+    """Single-scalar temperature minimizing validation BCE (Guo et al. 2017).
+
+    The app currently hardcodes temperature 1.8; this measures the real value
+    so the on-device sigmoid squashing can be grounded in validation data.
+    """
+    log_temperature = torch.zeros(1, requires_grad=True)
+    optimizer = torch.optim.LBFGS([log_temperature], lr=0.1, max_iter=100)
+    loss_fn = torch.nn.BCEWithLogitsLoss()
+
+    def closure():
+        optimizer.zero_grad()
+        loss = loss_fn(logits / log_temperature.exp(), targets)
+        loss.backward()
+        return loss
+
+    optimizer.step(closure)
+    return float(log_temperature.exp())
 
 
 def calibrate_model(model_path=MODEL_SAVE_PATH, thresholds_path=THRESHOLDS_SAVE_PATH):
@@ -22,11 +45,20 @@ def calibrate_model(model_path=MODEL_SAVE_PATH, thresholds_path=THRESHOLDS_SAVE_
     _, val_loader, _ = get_dataloaders()
     labels = []
     probabilities = []
+    raw_logits = []
     with torch.no_grad():
         for images, targets in tqdm(val_loader, desc="Calibrating"):
             outputs = model(images.to(DEVICE))
+            raw_logits.append(outputs.cpu())
             probabilities.extend(torch.sigmoid(outputs).cpu().numpy())
             labels.extend(targets.numpy())
+
+    temperature = fit_temperature(
+        torch.cat(raw_logits), torch.tensor(labels, dtype=torch.float32)
+    )
+    with open(TEMPERATURE_SAVE_PATH, "w") as temperature_file:
+        json.dump({"temperature": round(temperature, 4)}, temperature_file)
+    print(f"Fitted temperature: {temperature:.3f} (saved to {TEMPERATURE_SAVE_PATH})")
 
     thresholds = calibrate_thresholds(labels, probabilities)
     metrics, _ = calculate_metrics(labels, probabilities, thresholds)
