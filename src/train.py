@@ -13,7 +13,9 @@ from config import (
     AUXILIARY_CE_WEIGHT,
     BACKBONE_LR_MULTIPLIER,
     HEAD_ONLY_EPOCHS,
+    LABEL_SMOOTHING,
     LEARNING_RATE,
+    LOGS_DIR,
     NUM_EPOCHS,
     DEVICE,
     WEIGHT_DECAY,
@@ -40,20 +42,39 @@ from utils import calibrate_thresholds, calculate_metrics, save_thresholds
 class HybridMultiLabelLoss(nn.Module):
     """BCE output with an auxiliary class-competition loss for one-hot samples."""
 
-    def __init__(self, pos_weight, auxiliary_ce_weight=AUXILIARY_CE_WEIGHT):
+    def __init__(self, pos_weight, auxiliary_ce_weight=AUXILIARY_CE_WEIGHT, label_smoothing=LABEL_SMOOTHING):
         super().__init__()
         self.bce = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-        self.ce = nn.CrossEntropyLoss()
+        self.ce = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
         self.auxiliary_ce_weight = auxiliary_ce_weight
+        self.label_smoothing = label_smoothing
 
     def forward(self, logits, targets):
-        loss = self.bce(logits, targets)
+        # Smoothed BCE targets pull hard 0/1 labels slightly toward the center,
+        # which regularizes the tiny dataset against overconfident logits.
+        smoothed = targets * (1.0 - self.label_smoothing) + self.label_smoothing / 2.0
+        loss = self.bce(logits, smoothed)
         single_label_mask = targets.sum(dim=1) == 1
         if self.auxiliary_ce_weight > 0 and single_label_mask.any():
             primary_targets = targets[single_label_mask].argmax(dim=1)
             auxiliary_loss = self.ce(logits[single_label_mask], primary_targets)
             loss = loss + self.auxiliary_ce_weight * auxiliary_loss
         return loss
+
+
+def append_metrics_log(epoch, train_loss, val_loss, metrics, lr):
+    """Append one row per epoch to a CSV so runs leave an inspectable history."""
+    os.makedirs(LOGS_DIR, exist_ok=True)
+    log_path = os.path.join(LOGS_DIR, "metrics_history.csv")
+    write_header = not os.path.exists(log_path)
+    with open(log_path, "a") as log_file:
+        if write_header:
+            log_file.write("timestamp,epoch,train_loss,val_loss,top1_accuracy,f1,auroc,lr\n")
+        log_file.write(
+            f"{datetime.now().isoformat(timespec='seconds')},{epoch},"
+            f"{train_loss:.6f},{val_loss:.6f},{metrics['Top1Accuracy']:.6f},"
+            f"{metrics['F1']:.6f},{metrics['AUROC']:.6f},{lr:.8f}\n"
+        )
 
 
 def backup_existing_artifacts(save_path):
@@ -140,8 +161,11 @@ def train_model(model, model_name=None, save_path=None, epochs=None):
     warmup_scheduler = LinearLR(optimizer, start_factor=0.01, total_iters=WARMUP_EPOCHS)
     cosine_scheduler = CosineAnnealingLR(optimizer, T_max=epochs - WARMUP_EPOCHS, eta_min=LEARNING_RATE/10)
     scheduler = SequentialLR(optimizer, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[WARMUP_EPOCHS])
-    scaler = torch.amp.GradScaler(DEVICE)
-    
+    # AMP is CUDA-only: GradScaler is a no-op on MPS and autocast is flaky there,
+    # so Apple Silicon trains in plain FP32.
+    use_amp = DEVICE == "cuda"
+    scaler = torch.amp.GradScaler(DEVICE, enabled=use_amp)
+
     for param in backbone_params:
         param.requires_grad = False
 
@@ -172,7 +196,7 @@ def train_model(model, model_name=None, save_path=None, epochs=None):
         for images, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}"):
             images, labels = images.to(DEVICE), labels.to(DEVICE)
             optimizer.zero_grad()
-            with torch.autocast(DEVICE):
+            with torch.autocast(DEVICE, enabled=use_amp):
                 outputs = model(images)
                 loss = criterion(outputs, labels)
             scaler.scale(loss).backward()
@@ -185,7 +209,9 @@ def train_model(model, model_name=None, save_path=None, epochs=None):
         
         scheduler.step()
         val_loss, val_metrics, thresholds = validate_model(model, val_loader, criterion)
-        print(f"Train Loss: {running_loss / len(train_loader):.4f}")
+        train_loss = running_loss / len(train_loader)
+        print(f"Train Loss: {train_loss:.4f}")
+        append_metrics_log(epoch + 1, train_loss, val_loss, val_metrics, optimizer.param_groups[-1]["lr"])
 
         current_auroc = val_metrics["AUROC"]
         if np.isfinite(current_auroc) and current_auroc > best_val_auroc:
