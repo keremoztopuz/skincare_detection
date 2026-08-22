@@ -32,6 +32,10 @@ POS_WEIGHT_POWER = 0.25
 AUXILIARY_CE_WEIGHT = 0.25
 MIN_CHECKPOINT_AUROC = 0.50
 CLASS_NAMES = ["Acne", "Eczema", "Eye_Bags", "Wrinkles"]
+# Clean-face negatives: trained with an all-zero target so every head
+# learns to stay quiet on healthy skin. Not a model output class.
+NEGATIVE_CLASS_NAME = "Healthy"
+NEGATIVE_LABEL = -1
 SEED = 42
 
 DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
