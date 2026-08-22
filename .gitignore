@@ -1,7 +1,13 @@
-# Dataset folders (too large for git)
+# Data folders
 FINAL_SPLIT/
+FINAL_SPLIT_CLEAN/
 MASTER_DATASET/
+PreparedModelData/
+CuratedDataset_100/
+CuratedDataset_100_selected/
+orchestration_data/
 data/
+data_prep/
 Skin-Condition-Detection_Merged-1/
 
 # Python
@@ -17,27 +23,31 @@ venv/
 dist/
 build/
 
-# IDE
+# IDE/editor
 .idea/
 .vscode/
 *.swp
 *.swo
 
-# Jupyter
+# Notebooks
 .ipynb_checkpoints/
 *.ipynb_checkpoints
 
-# Model outputs
-outputs/checkpoints/*.pth
-outputs/coreml/*.mlpackage
+# Outputs and model artifacts
+outputs/checkpoints/
+outputs/coreml/
+outputs/images/
+outputs/logs/
+outputs/optuna_results/
+outputs/model/*.pth
+*.pth
+*.pt
+*.onnx
 *.db
 
 # OS
 .DS_Store
 Thumbs.db
-outputs/model/best_model.pth
-outputs/images/confusion_matrix.png
-outputs/images/gradcam_result.png
 
 # ==========================================
 # Xcode / iOS Specific
@@ -57,6 +67,3 @@ DerivedData/
 
 # Xcode temporary files
 *.temp_caseoptimistic_submission
-
-# OS / macOS
-.DS_Store
