@@ -8,13 +8,18 @@ from torchvision import transforms
 from PIL import Image
 import config
 
+# Augmentation strengths follow the Optuna search results (trial #6): a much
+# wider crop range plus random erasing beat the old conservative settings on
+# this small dataset. ColorJitter is widened to cover phone-camera lighting
+# and white-balance variance.
 train_transform = transforms.Compose([
-    transforms.RandomResizedCrop(config.IMG_SIZE, scale=(0.92, 1.0)),
+    transforms.RandomResizedCrop(config.IMG_SIZE, scale=(0.77, 1.0)),
     transforms.RandomHorizontalFlip(p=0.5),
     transforms.RandomRotation(7),
-    transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.05, hue=0.01),
+    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.1, hue=0.02),
     transforms.ToTensor(),
     transforms.Normalize(mean=config.MEAN, std=config.STD),
+    transforms.RandomErasing(p=0.45),
 ])
 
 val_transform = transforms.Compose([
@@ -101,8 +106,12 @@ def get_dataloaders(batch_size=config.BATCH_SIZE, shuffle=True):
     val_dataset = SkinDataset(val_images, val_labels, transform=val_transform)
     test_dataset = SkinDataset(test_images, test_labels, transform=val_transform)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=0, pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=True)
+    # pin_memory only helps CUDA; on Apple Silicon the win comes from parallel
+    # JPEG decoding in worker processes.
+    workers = 4 if config.DEVICE != "cuda" else 2
+    pin = config.DEVICE == "cuda"
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=workers, pin_memory=pin, persistent_workers=workers > 0)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=workers, pin_memory=pin, persistent_workers=workers > 0)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=workers, pin_memory=pin, persistent_workers=workers > 0)
 
     return train_loader, val_loader, test_loader
