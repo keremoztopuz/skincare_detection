@@ -67,3 +67,7 @@ DerivedData/
 
 # Xcode temporary files
 *.temp_caseoptimistic_submission
+
+# downloaded raw data pools
+data_prep/downloads/
+orchestration_data_v1_backup/
