@@ -7,8 +7,11 @@ from the dataset:
      areas differ enough in skin structure that they teach the wrong thing to
      a face-facing model, and they have no place in a consumer app's dataset.
   2. Reject conditions that were filed under the wrong label. DermNet's
-     "Acne and Rosacea Photos" folder is only ~65% acne: 96 files are
-     hidradenitis suppurativa, 21 rosacea, 59 perioral dermatitis.
+     "Acne and Rosacea Photos" folder is only ~65% acne: 94 files are
+     hidradenitis suppurativa, 21 rosacea, 59 perioral dermatitis, 8 drug
+     eruptions and 7 Fordyce spots.
+  3. Reject images that are not photographs of skin at all — histology slides
+     and lesion diagrams.
 
 Three signals, in order of trustworthiness:
 
@@ -44,6 +47,14 @@ MISLABELLED_CONDITIONS = {
     "suppurativa": "hidradenitis_suppurativa",
     "rosacea": "rosacea",
     "rhinophyma": "rosacea",
+    # Perioral dermatitis is not acne. It is treated differently — topical
+    # steroids make it worse, and some acne regimens are wrong for it — so a
+    # product-recommending app labelling it "Acne" is a real error, not a
+    # rounding one. Dropping it costs 22 of Acne's 136 face-containing images
+    # and leaves 114, so the "we need facial images" argument does not hold.
+    # The manifest keeps them with a reason, so a future facial-dermatitis
+    # class can recover them.
+    "perioral": "perioral_dermatitis",
     # Found during human review, then generalised from the filenames.
     "fordyce": "fordyce_spots",
     "minocycline": "drug_induced_pigmentation",
@@ -62,8 +73,8 @@ NON_PHOTOGRAPH_TOKENS = (
 
 # Regions that are safe to keep. Used to auto-accept without a model.
 SAFE_TOKENS = (
-    "face", "facial", "cheek", "forehead", "chin", "nose", "lip", "perioral",
-    "lids", "eyelid", "periorbital", "scalp", "ear", "neck",
+    "face", "facial", "cheek", "forehead", "chin", "nose", "lip",
+    "lids", "eyelid", "periorbital", "scalp", "ear", "neck",  # perioral: MISLABELLED_CONDITIONS
     "hand", "finger", "fingertips", "palm", "wrist", "nail", "knuckle",
     "arm", "forearm", "elbow", "shoulder",
     "leg", "knee", "thigh", "shin", "calf", "ankle",
