@@ -69,6 +69,7 @@ def calibrate_model(model_path=MODEL_SAVE_PATH, thresholds_path=THRESHOLDS_SAVE_
         print(f"  {class_name}: {threshold:.2f}")
     print(
         f"Top-1 Acc: {metrics['Top1Accuracy']:.4f} | "
+        f"NegativeReject: {metrics['NegativeReject']:.4f} | "
         f"Exact Match: {metrics['Accuracy']:.4f} | "
         f"Precision: {metrics['Precision']:.4f} | Recall: {metrics['Recall']:.4f} | "
         f"F1: {metrics['F1']:.4f} | AUROC: {metrics['AUROC']:.4f} | "
