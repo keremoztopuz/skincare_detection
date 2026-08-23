@@ -56,6 +56,9 @@ def evaluate_model(model_name=None, save_path=None, thresholds_path=None, tta=Fa
 def print_results(metrics, all_labels, all_predictions, save_plots=True):
     print(f"\n{'='*50}")
     print(f"Top-1 Accuracy: {metrics['Top1Accuracy']:.4f} ({metrics['Top1Accuracy']*100:.2f}%)")
+    # Share of Healthy faces that fired no class at all. This is the metric
+    # the Healthy negative set was added to move; nan means the split had none.
+    print(f"NegativeReject: {metrics['NegativeReject']:.4f} ({metrics['NegativeReject']*100:.2f}%)")
     print(f"Exact Match:    {metrics['Accuracy']:.4f} ({metrics['Accuracy']*100:.2f}%)")
     print(f"Precision: {metrics['Precision']:.4f}")
     print(f"Recall:    {metrics['Recall']:.4f}")
