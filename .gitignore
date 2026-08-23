@@ -70,3 +70,5 @@ DerivedData/
 # downloaded raw data pools
 data_prep/downloads/
 orchestration_data_v1_backup/
+orchestration_data_snapshot_*/
+orchestration_data_v2/
