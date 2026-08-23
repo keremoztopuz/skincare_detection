@@ -69,10 +69,14 @@ def append_metrics_log(epoch, train_loss, val_loss, metrics, lr):
     write_header = not os.path.exists(log_path)
     with open(log_path, "a") as log_file:
         if write_header:
-            log_file.write("timestamp,epoch,train_loss,val_loss,top1_accuracy,f1,auroc,lr\n")
+            log_file.write(
+                "timestamp,epoch,train_loss,val_loss,top1_accuracy,"
+                "negative_reject,f1,auroc,lr\n"
+            )
         log_file.write(
             f"{datetime.now().isoformat(timespec='seconds')},{epoch},"
             f"{train_loss:.6f},{val_loss:.6f},{metrics['Top1Accuracy']:.6f},"
+            f"{metrics['NegativeReject']:.6f},"
             f"{metrics['F1']:.6f},{metrics['AUROC']:.6f},{lr:.8f}\n"
         )
 
