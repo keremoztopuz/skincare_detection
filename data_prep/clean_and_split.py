@@ -22,6 +22,7 @@ import random
 import shutil
 import sys
 from collections import defaultdict
+from datetime import datetime
 
 from PIL import Image
 
@@ -124,21 +125,50 @@ def count_faces(paths):
     return hits
 
 
+DEPRECATION_NOTICE = """
+clean_and_split.py artik kullanim disi. Yerine data_prep/build_dataset.py kullanin.
+
+Nedeni: bu betik uc olcumlu kusur uretti.
+  1. Cozunurluk kisayolu  - hicbir yeniden boyutlandirma yapmadigi icin Healthy
+     200x200, Eye_Bags/Wrinkles 640x640 kaldi (shutil.copy2, asagida).
+  2. Split sizintisi      - gruplama tam-dhash esitligine dayaniyor, Hamming
+     yaricapi yok, ayna hash'i yok. Roboflow augment kopyalari train ve test'e
+     dagildi (Eye_Bags 42/90, Wrinkles 34/90).
+  3. Provenans kaybi      - kaynak/lisans bilgisi havuzlamada siliniyor.
+
+Yine de calistirmak zorundaysaniz --force verin; hedef dizin zaman damgali
+olarak yedeklenir, asla silinmez.
+"""
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--face-priority", action="store_true", help="report face counts per class")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="deprecated betigi yine de calistir; DATA_DIR zaman damgali yedeklenir",
+    )
     arguments = parser.parse_args()
+
+    if not arguments.force:
+        print(DEPRECATION_NOTICE)
+        return 1
 
     rng = random.Random(SEED)
 
-    # Back up (or clear) the current split BEFORE collecting paths, so every
-    # pooled path stays readable while images are hashed and copied.
+    # Back up the current split BEFORE collecting paths, so every pooled path
+    # stays readable while images are hashed and copied.
+    #
+    # The previous version deleted DATA_DIR outright whenever BACKUP_DIR already
+    # existed. Since both trees are gitignored that was an unrecoverable wipe of
+    # the only copy, and BACKUP_DIR held a stale 434-image tree. Never delete;
+    # always move to a fresh timestamped directory.
     if os.path.isdir(config.DATA_DIR):
-        if os.path.isdir(BACKUP_DIR):
-            shutil.rmtree(config.DATA_DIR)
-        else:
-            shutil.move(config.DATA_DIR, BACKUP_DIR)
-            print(f"eski veri yedeklendi: {BACKUP_DIR}")
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup_path = f"{BACKUP_DIR}_{stamp}"
+        shutil.move(config.DATA_DIR, backup_path)
+        print(f"eski veri yedeklendi: {backup_path}")
 
     sources = collect_sources()
 
@@ -175,4 +205,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)
