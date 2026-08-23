@@ -80,3 +80,5 @@ data_prep/downloads/raw_web/
 data_prep/review/*.html
 data_prep/canonical/
 outputs/audits/
+data_prep/downloads/ffhq/
+data_prep/downloads/ffhq_staged/
