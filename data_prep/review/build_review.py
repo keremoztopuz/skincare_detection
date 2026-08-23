@@ -66,7 +66,7 @@ def collect_body_region() -> List[Dict[str, object]]:
             if not path.lower().endswith((".jpg", ".jpeg", ".png")):
                 continue
             verdict, detail = BR.classify_filename(path)
-            if verdict in (BR.INTIMATE, BR.MISLABELLED):
+            if verdict in (BR.INTIMATE, BR.MISLABELLED, BR.NON_PHOTOGRAPH):
                 continue
             items.append({
                 "path": path,

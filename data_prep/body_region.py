@@ -44,7 +44,21 @@ MISLABELLED_CONDITIONS = {
     "suppurativa": "hidradenitis_suppurativa",
     "rosacea": "rosacea",
     "rhinophyma": "rosacea",
+    # Found during human review, then generalised from the filenames.
+    "fordyce": "fordyce_spots",
+    "minocycline": "drug_induced_pigmentation",
+    "drug-eruption": "drug_induced_pigmentation",
+    "drug-induced": "drug_induced_pigmentation",
 }
+
+# Not photographs of skin at all. The reviewer caught six histology slides and
+# six lesion diagrams by hand; generalising their filenames covers the rest of
+# the pool, including the part nobody has looked at. A microscope slide or a
+# line drawing shares no statistics with a phone photo of a face.
+NON_PHOTOGRAPH_TOKENS = (
+    "histology", "histopath", "micrograph", "pathology", "biopsy", "h&e",
+    "primary-lesion", "diagram", "illustration", "schematic", "drawing",
+)
 
 # Regions that are safe to keep. Used to auto-accept without a model.
 SAFE_TOKENS = (
@@ -59,6 +73,7 @@ SAFE_TOKENS = (
 
 INTIMATE = "intimate"
 MISLABELLED = "mislabelled_condition"
+NON_PHOTOGRAPH = "not_a_photograph"
 SAFE = "safe"
 UNKNOWN = "unknown"
 
@@ -66,8 +81,8 @@ UNKNOWN = "unknown"
 def classify_filename(filename: str) -> Tuple[str, Optional[str]]:
     """Classify by filename alone.
 
-    Returns (verdict, detail). Verdict is one of INTIMATE, MISLABELLED, SAFE,
-    UNKNOWN. Intimate wins over everything else, then mislabelled, then safe.
+    Returns (verdict, detail). Intimate wins over everything else, then
+    not-a-photograph, then mislabelled, then safe.
     """
     stem = os.path.splitext(os.path.basename(filename))[0].lower()
     # Split CamelCase so "AnalExcoriation" yields "anal".
@@ -77,6 +92,9 @@ def classify_filename(filename: str) -> Tuple[str, Optional[str]]:
     for token in INTIMATE_TOKENS:
         if token in haystack:
             return INTIMATE, token
+    for token in NON_PHOTOGRAPH_TOKENS:
+        if token in haystack:
+            return NON_PHOTOGRAPH, token
     for token, condition in MISLABELLED_CONDITIONS.items():
         if token in haystack:
             return MISLABELLED, condition
