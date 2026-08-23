@@ -126,6 +126,7 @@ def validate_model(model, val_loader, criterion):
     recall_text = ", ".join(f"{value:.3f}" for value in metrics["PerClassRecall"])
     print(
         f"Val Loss: {avg_loss:.4f} | Top-1 Acc: {metrics['Top1Accuracy']:.4f} | "
+        f"NegReject: {metrics['NegativeReject']:.4f} | "
         f"Exact@{DETECTION_THRESHOLD:.2f}: {fixed_metrics['Accuracy']:.4f} | "
         f"Cal Exact: {metrics['Accuracy']:.4f} | "
         f"Prec: {metrics['Precision']:.4f} | Rec: {metrics['Recall']:.4f} | "
