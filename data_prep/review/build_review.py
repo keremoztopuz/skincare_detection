@@ -78,6 +78,32 @@ def collect_body_region() -> List[Dict[str, object]]:
     return items
 
 
+def collect_ffhq() -> List[Dict[str, object]]:
+    """FFHQ candidates for the Wrinkles / Healthy call, oldest first.
+
+    Age decides the order, never the label. Sorting oldest-first puts the
+    likely Wrinkles cases early so the reviewer finds them without hunting,
+    but every image still has to be judged on whether wrinkles are visible —
+    using the age band as the label is exactly the confound this avoids.
+    """
+    import provenance as PV
+    order = {"70_plus": 0, "50_69": 1, "40_49": 2, "30_39": 3, "20_29": 4}
+    items = []
+    for record in PV.load_manifest().values():
+        if record.get("source") != "ffhq" or record.get("status") != "canonical":
+            continue
+        path = os.path.join(ROOT, record["canonical_path"])
+        if not os.path.exists(path):
+            continue
+        items.append({
+            "path": path, "label": "UNLABELLED",
+            "note": record.get("age_band") or "?",
+            "priority": order.get(record.get("age_band"), 9),
+        })
+    items.sort(key=lambda item: (item["priority"], item["path"]))
+    return items
+
+
 def collect_glob(pattern: str, label: str) -> List[Dict[str, object]]:
     items = []
     for path in sorted(glob.glob(pattern)):
@@ -111,6 +137,13 @@ PAGE = """<!doctype html>
  figure figcaption { font-size:10px; color:#8a8a96; padding:4px 6px; overflow:hidden;
                      text-overflow:ellipsis; white-space:nowrap; }
  figure.reject { border-color:#ff4d6a; }
+ figure.wrinkles { border-color:#ffa726; }
+ figure.wrinkles::after { content:"KIRISIK"; position:absolute; inset:auto 0 0 0; background:#ffa726;
+   color:#111; font-size:10px; font-weight:700; text-align:center; padding:2px; }
+ figure.healthy { border-color:#26c281; }
+ figure.healthy::after { content:"TEMIZ"; position:absolute; inset:auto 0 0 0; background:#26c281;
+   color:#111; font-size:10px; font-weight:700; text-align:center; padding:2px; }
+ figure.skipped { opacity:.3; }
  figure.reject img { opacity:.26; }
  figure.reject::after { content:"CIKAR"; position:absolute; inset:0; display:flex;
    align-items:center; justify-content:center; font-weight:700; color:#ff4d6a; letter-spacing:1px; }
@@ -127,8 +160,7 @@ PAGE = """<!doctype html>
 </header>
 <div class="grid" id="grid"></div>
 <footer>
-  <span class="muted">Varsayilan: <b>tut</b>. Yalnizca <b>cikarilacaklara</b> tikla.
-  Klavye: oklar gez &middot; <b>x</b> veya <b>space</b> cikar/geri al &middot; <b>?</b> yardim</span>
+  <span class="muted" id="help"></span>
 </footer>
 <script>
 const ITEMS = __ITEMS__;
@@ -148,11 +180,23 @@ ITEMS.forEach((item, index) => {
   grid.appendChild(figure);
 });
 
-function toggle(index) {
+// Two shapes of review. A reject/keep queue is a single toggle; sorting into
+// classes needs three outcomes, and "skip" has to be one of them — forcing a
+// call on an ambiguous face is how label noise gets in.
+const THREE_WAY = JOB === "ffhq";
+const CHOICES = THREE_WAY ? ["wrinkles", "healthy", "skip"] : ["reject"];
+
+function setChoice(index, choice) {
   const id = ITEMS[index].id;
-  if (state[id]) { delete state[id]; } else { state[id] = "reject"; }
+  if (!choice || state[id] === choice) { delete state[id]; }
+  else { state[id] = choice; }
   localStorage.setItem(KEY, JSON.stringify(state));
   render();
+}
+function toggle(index) {
+  if (THREE_WAY) { return; }
+  const id = ITEMS[index].id;
+  setChoice(index, state[id] ? null : "reject");
 }
 function move(index) {
   cursor = Math.max(0, Math.min(ITEMS.length - 1, index));
@@ -161,12 +205,20 @@ function move(index) {
 function render() {
   const figures = grid.children;
   for (let index = 0; index < figures.length; index++) {
-    figures[index].classList.toggle("reject", !!state[ITEMS[index].id]);
+    const choice = state[ITEMS[index].id];
+    figures[index].classList.toggle("reject", choice === "reject");
+    figures[index].classList.toggle("wrinkles", choice === "wrinkles");
+    figures[index].classList.toggle("healthy", choice === "healthy");
+    figures[index].classList.toggle("skipped", choice === "skip");
     figures[index].classList.toggle("cursor", index === cursor);
   }
-  const removed = Object.keys(state).length;
+  const tally = {};
+  for (const value of Object.values(state)) { tally[value] = (tally[value] || 0) + 1; }
+  const summary = THREE_WAY
+    ? ["wrinkles", "healthy", "skip"].map(k => (tally[k] || 0) + " " + k).join(" \u00b7 ")
+    : (tally.reject || 0) + " cikarildi";
   document.getElementById("stat").textContent =
-    ITEMS.length + " gorsel \u00b7 " + removed + " cikarildi";
+    ITEMS.length + " gorsel \u00b7 " + summary;
   document.getElementById("bar").style.width = (100 * cursor / ITEMS.length) + "%";
 }
 addEventListener("keydown", (event) => {
@@ -175,8 +227,10 @@ addEventListener("keydown", (event) => {
   else if (event.key === "ArrowLeft") { move(cursor - 1); event.preventDefault(); }
   else if (event.key === "ArrowDown") { move(cursor + columns); event.preventDefault(); }
   else if (event.key === "ArrowUp") { move(cursor - columns); event.preventDefault(); }
-  else if (event.key === "x" || event.key === " ") { toggle(cursor); event.preventDefault(); }
-  else if (event.key === "?") { alert("Varsayilan tut. x/space cikar. Bitince Export."); }
+  else if (THREE_WAY && event.key === "a") { setChoice(cursor, "wrinkles"); move(cursor + 1); event.preventDefault(); }
+  else if (THREE_WAY && event.key === "s") { setChoice(cursor, "healthy"); move(cursor + 1); event.preventDefault(); }
+  else if (THREE_WAY && (event.key === "d" || event.key === " ")) { setChoice(cursor, "skip"); move(cursor + 1); event.preventDefault(); }
+  else if (!THREE_WAY && (event.key === "x" || event.key === " ")) { toggle(cursor); event.preventDefault(); }
   grid.children[cursor] && grid.children[cursor].scrollIntoView({block: "nearest"});
 });
 document.getElementById("clear").addEventListener("click", () => {
@@ -186,9 +240,12 @@ document.getElementById("export").addEventListener("click", () => {
   const stamp = new Date().toISOString();
   // Every reviewed item is written, not only the rejects: "looked at and kept"
   // is a decision, and without it a rebuild cannot tell it from "never seen".
-  const lines = ITEMS.map(item => JSON.stringify({
+  // Only judged items are written. In the three-way job an unvisited face is
+  // not "healthy by default" — silence is not a label.
+  const source = THREE_WAY ? ITEMS.filter(i => state[i.id]) : ITEMS;
+  const lines = source.map(item => JSON.stringify({
     id: item.id,
-    decision: state[item.id] ? "reject" : "approve",
+    decision: THREE_WAY ? state[item.id] : (state[item.id] ? "reject" : "approve"),
     reviewer: "human",
     reviewed_at: stamp,
     tool_version: "review-1.0.0",
@@ -199,6 +256,9 @@ document.getElementById("export").addEventListener("click", () => {
   link.href = url; link.download = "decisions.jsonl"; link.click();
   URL.revokeObjectURL(url);
 });
+document.getElementById("help").innerHTML = THREE_WAY
+  ? "Klavye: <b>a</b> kirisik &middot; <b>s</b> temiz &middot; <b>d</b> atla &middot; oklar gez. Karar verilmeyen yazilmaz."
+  : "Varsayilan: <b>tut</b>. Yalnizca <b>cikarilacaklara</b> tikla. <b>x</b>/space cikar.";
 render();
 </script>
 """
@@ -229,7 +289,10 @@ def build(items: List[Dict[str, object]], job: str, title: str, out_path: str, l
             continue
         payload.append({
             "id": record_id,
-            "name": os.path.basename(item["path"])[:40],
+            # Canonical files are named by manifest id, so the filename tells a
+            # reviewer nothing. Show the note (age band) instead — useful
+            # context for the call, and it keeps the id out of the way.
+            "name": (item.get("note") or os.path.basename(item["path"]))[:40],
             "label": item["label"],
             "thumb": thumb,
         })
@@ -245,14 +308,17 @@ def build(items: List[Dict[str, object]], job: str, title: str, out_path: str, l
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--job", default="body-region", choices=("body-region", "eyebags", "glob"))
+    parser.add_argument("--job", default="body-region", choices=("body-region", "eyebags", "ffhq", "glob"))
     parser.add_argument("--pattern", help="--job glob icin dosya deseni")
     parser.add_argument("--label", default="", help="--job glob icin sinif adi")
     parser.add_argument("--limit", type=int, default=1200)
     parser.add_argument("--out", default=os.path.join(HERE, "review.html"))
     arguments = parser.parse_args()
 
-    if arguments.job == "body-region":
+    if arguments.job == "ffhq":
+        items = collect_ffhq()
+        title = "FFHQ: kirisik mi, temiz mi?  (a=kirisik  s=temiz  d=atla)"
+    elif arguments.job == "body-region":
         items = collect_body_region()
         title = "Vucut bolgesi taramasi - mahrem bolgeleri cikar"
     elif arguments.job == "eyebags":
