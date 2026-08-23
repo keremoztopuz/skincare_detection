@@ -77,3 +77,5 @@ orchestration_data_v2/
 .venv-dataprep/
 data_prep/manifest/
 data_prep/downloads/raw_web/
+.venv-clip/
+data_prep/review/*.html
