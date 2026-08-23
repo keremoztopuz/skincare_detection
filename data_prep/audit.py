@@ -39,6 +39,17 @@ MAX_SINGLE_FEATURE_AUC = 0.72
 PERMUTATION_ROUNDS = 100
 PERMUTATION_ALPHA = 0.01
 
+# Only features that pathology cannot plausibly cause are gated. A file's
+# dimensions, byte density, JPEG tables and sharpness say nothing about skin,
+# so if they predict the class the dataset is separable without looking at a
+# lesion. Colour and brightness are different: inflamed acne really is redder,
+# and a flat skin patch really is lower-variance, so gating on those would
+# punish genuine signal. They are measured and reported, never gated.
+ACQUISITION_FEATURES = frozenset({
+    "width", "height", "log_pixels", "aspect", "bytes_per_pixel",
+    "quant_signature", "lapvar", "high_freq_ratio",
+})
+
 
 def jpeg_quantization_signature(path: str) -> Optional[int]:
     """Hash of the JPEG quantization tables.
@@ -236,16 +247,27 @@ def main() -> int:
         print(f"   {name:<12} {counts.get(index, 0)}")
     print(f"ozellik: {len(names)} adet (yalnizca edinim, icerik yok)\n")
 
-    scores = probe(matrix, labels, n_classes)
-    print(f"metadata probu : balanced_accuracy={scores['balanced_accuracy']:.3f} "
-          f"(sans {chance:.3f}, sinir {limit:.3f})")
+    gated_columns = [i for i, name in enumerate(names) if name in ACQUISITION_FEATURES]
+    gated_names = [names[i] for i in gated_columns]
+    scores = probe(matrix[:, gated_columns], labels, n_classes)
+    all_scores = probe(matrix, labels, n_classes)
+    print(f"edinim probu   : balanced_accuracy={scores['balanced_accuracy']:.3f} "
+          f"(sans {chance:.3f}, sinir {limit:.3f})   [{len(gated_names)} ozellik]")
     print(f"                 macro_auroc={scores['macro_auroc']:.3f} (sinir {MAX_MACRO_AUROC})")
+    print(f"tum ozellikler : balanced_accuracy={all_scores['balanced_accuracy']:.3f}  "
+          f"(bilgi amacli; renk/parlaklik gercek sinyal olabilir)")
 
     offenders = univariate(matrix, labels, names, class_names)
-    print("\nen guclu tekil ozellikler:")
-    for class_name, feature, auc in offenders[:6]:
+    gated_offenders = [o for o in offenders if o[1] in ACQUISITION_FEATURES]
+    print("\nen guclu EDINIM ozellikleri (kapiya tabi):")
+    for class_name, feature, auc in gated_offenders[:5]:
         flag = "  <-- SINIR ASIMI" if auc >= MAX_SINGLE_FEATURE_AUC else ""
         print(f"   {class_name:<12} {feature:<18} AUC={auc:.3f}{flag}")
+    appearance = [o for o in offenders if o[1] not in ACQUISITION_FEATURES][:4]
+    print("en guclu GORUNUM ozellikleri (yalnizca rapor):")
+    for class_name, feature, auc in appearance:
+        print(f"   {class_name:<12} {feature:<18} AUC={auc:.3f}")
+    offenders = gated_offenders
 
     failures = []
     if scores["balanced_accuracy"] > limit:

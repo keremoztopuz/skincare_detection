@@ -78,3 +78,5 @@ orchestration_data_v2/
 data_prep/downloads/raw_web/
 .venv-clip/
 data_prep/review/*.html
+data_prep/canonical/
+outputs/audits/
