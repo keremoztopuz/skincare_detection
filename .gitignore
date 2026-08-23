@@ -72,3 +72,8 @@ data_prep/downloads/
 orchestration_data_v1_backup/
 orchestration_data_snapshot_*/
 orchestration_data_v2/
+
+# dataprep
+.venv-dataprep/
+data_prep/manifest/
+data_prep/downloads/raw_web/

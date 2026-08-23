@@ -1,0 +1,8 @@
+# Data preparation environment. Kept separate from requirements.txt because
+# mediapipe pins protobuf/numpy in ways that fight the torch training env.
+# Install into .venv-dataprep, never into the training venv.
+mediapipe>=0.10.14      # Apache-2.0 — face detection + 478 landmarks
+opencv-python>=4.8      # Laplacian variance, solvePnP, MSER text regions
+Pillow>=10.0            # decode, EXIF transpose, resize, JPEG re-encode
+ImageHash>=4.3.1        # pHash with a Hamming radius (BSD)
+numpy>=1.24
