@@ -7,20 +7,47 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
 import config
+import nuisance
 
 # Augmentation strengths follow the Optuna search results (trial #6): a much
 # wider crop range plus random erasing beat the old conservative settings on
 # this small dataset. ColorJitter is widened to cover phone-camera lighting
 # and white-balance variance.
+#
+# RandomNuisance comes first and is the reason this pipeline exists in its
+# current form. Without it the previous dataset let the model separate classes
+# on image resolution alone: every Healthy image was 200x200 and every
+# Eye_Bags/Wrinkles 640x640, and downscaling real Eye_Bags photos to 200x200
+# collapsed recall from 38/40 to 8/40. Note that RandomResizedCrop actively
+# made that worse, upsampling a 154px crop of a 200px image to 384. Re-drawing
+# the nuisance every epoch is what turns resolution into noise rather than a
+# per-image constant the network can memorize.
 train_transform = transforms.Compose([
-    transforms.RandomResizedCrop(config.IMG_SIZE, scale=(0.77, 1.0)),
+    nuisance.RandomNuisance(),
+    transforms.RandomResizedCrop(config.IMG_SIZE, scale=(0.55, 1.0), ratio=(0.85, 1.18)),
     transforms.RandomHorizontalFlip(p=0.5),
-    transforms.RandomRotation(7),
-    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.1, hue=0.02),
+    transforms.RandomRotation(10),
+    transforms.ColorJitter(brightness=0.25, contrast=0.25, saturation=0.15, hue=0.03),
     transforms.ToTensor(),
     transforms.Normalize(mean=config.MEAN, std=config.STD),
     transforms.RandomErasing(p=0.45),
 ])
+
+
+def eval_transform(view: str = "identity"):
+    """Val/test transform under a named nuisance view.
+
+    The squash to a square matches what the iOS app does to a Vision face crop
+    (CameraViewModel.analyzeWithCoreML), and canonical images are already
+    square, so it is a no-op on curated data. Any eval path the app cannot
+    reproduce is a source of exactly the illusion this rebuild is undoing.
+    """
+    return transforms.Compose([
+        transforms.Lambda(nuisance.EVAL_VIEWS[view]),
+        transforms.Resize((config.IMG_SIZE, config.IMG_SIZE)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=config.MEAN, std=config.STD),
+    ])
 
 val_transform = transforms.Compose([
     transforms.Resize((config.IMG_SIZE, config.IMG_SIZE)),
