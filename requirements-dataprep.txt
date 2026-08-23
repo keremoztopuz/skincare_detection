@@ -9,3 +9,4 @@ opencv-python>=4.8      # Laplacian variance, solvePnP, MSER text regions
 Pillow>=10.0            # decode, EXIF transpose, resize, JPEG re-encode
 ImageHash>=4.3.1        # pHash with a Hamming radius (BSD)
 numpy>=1.24
+scikit-learn>=1.3   # metadata shortcut probe in data_prep/audit.py
