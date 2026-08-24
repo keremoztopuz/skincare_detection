@@ -1,4 +1,5 @@
-import os 
+import json
+import os
 import hashlib
 import warnings
 from collections import defaultdict
@@ -56,102 +57,104 @@ val_transform = transforms.Compose([
 ])
 
 class SkinDataset(Dataset):
-    def __init__(self, image_paths, labels, transform=None):
-        self.image_paths = image_paths
-        self.labels = labels
+    """Images with a per-condition target and a mask of what is known.
+
+    The mask is the whole point. Every row carries four values, but only the
+    ones a person actually judged are scored; the rest are excluded from the
+    loss and from the metrics rather than being called absent.
+    """
+
+    def __init__(self, records, image_dir, transform=None):
+        self.records = records
+        self.image_dir = image_dir
         self.transform = transform
 
     def __len__(self):
-        return len(self.image_paths)
+        return len(self.records)
 
     def __getitem__(self, idx):
-        image_path = self.image_paths[idx]
-        image = Image.open(image_path).convert("RGB")
-        label = self.labels[idx]
-
+        record = self.records[idx]
+        image = Image.open(os.path.join(self.image_dir, record["file"])).convert("RGB")
         if self.transform:
             image = self.transform(image)
 
         target = torch.zeros(len(config.CLASS_NAMES))
-        if label >= 0:
-            target[label] = 1
-        # label < 0 (Healthy negatives) keeps the all-zero target.
+        mask = torch.zeros(len(config.CLASS_NAMES))
+        for index, name in enumerate(config.CLASS_NAMES):
+            value = record["conditions"].get(name)
+            if value is not None:
+                target[index] = float(value)
+                mask[index] = 1.0
+        return image, target, mask
 
-        return image, target
+    @property
+    def labels(self):
+        """Target and mask matrices, for pos_weight and for reporting."""
+        targets, masks = [], []
+        for record in self.records:
+            row = [record["conditions"].get(name) for name in config.CLASS_NAMES]
+            targets.append([float(v) if v is not None else 0.0 for v in row])
+            masks.append([0.0 if v is None else 1.0 for v in row])
+        return torch.tensor(targets), torch.tensor(masks)
 
-def load_data(DATA_DIR):
-    images = []
-    labels = []
-    if not os.path.exists(DATA_DIR):
-        raise FileNotFoundError(f"Directory not found: {DATA_DIR}")
-    for class_name in config.CLASS_NAMES:
-        CLASS_DIR = os.path.join(DATA_DIR, class_name)
-        if not os.path.exists(CLASS_DIR):
-            continue
-        label = config.CLASS_NAMES.index(class_name)
-        for file in sorted(os.listdir(CLASS_DIR)):
-            if file.lower().endswith(('.jpg', '.png', '.jpeg')):
-                images.append(os.path.join(CLASS_DIR, file))
-                labels.append(label) 
-    negative_dir = os.path.join(DATA_DIR, config.NEGATIVE_CLASS_NAME)
-    if os.path.isdir(negative_dir):
-        for file in sorted(os.listdir(negative_dir)):
-            if file.lower().endswith(('.jpg', '.png', '.jpeg')):
-                images.append(os.path.join(negative_dir, file))
-                labels.append(config.NEGATIVE_LABEL)
-    return images, labels
 
-def calculate_pos_weights(labels, num_classes=len(config.CLASS_NAMES)):
-    """BCE pos_weight = negative sample count / positive sample count.
+def load_data(split_dir):
+    """Read one split: its image directory and its label file.
 
-    Healthy negatives (label < 0) contribute to every class's negative
-    count but to no positive count, so they raise no pos_weight.
+    split_dir is <root>/<split>; the labels live beside it as
+    <root>/<split>_labels.jsonl so the image directory stays a flat pile of
+    files. Folder-per-class cannot express a face with two conditions, which
+    is exactly what this dataset now contains.
     """
-    label_tensor = torch.as_tensor(labels, dtype=torch.long)
-    positive_tensor = label_tensor[label_tensor >= 0]
-    positives = torch.bincount(positive_tensor, minlength=num_classes).float()
-    negatives = len(labels) - positives
+    root, split = os.path.dirname(split_dir), os.path.basename(split_dir)
+    label_path = os.path.join(root, config.LABEL_FILENAME.format(split=split))
+    if not os.path.exists(label_path):
+        raise FileNotFoundError(f"Label file not found: {label_path}")
+    records = []
+    with open(label_path, encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if line:
+                records.append(json.loads(line))
+    return records, split_dir
+
+
+def calculate_pos_weights(targets, masks):
+    """BCE pos_weight per class, counted over known entries only.
+
+    Counting an unknown entry as a negative would inflate the weight of every
+    head whose condition is rarely judged.
+    """
+    positives = (targets * masks).sum(dim=0)
+    known = masks.sum(dim=0)
+    negatives = known - positives
     return negatives / positives.clamp_min(1.0)
 
-def audit_split_leakage(split_dirs=None):
-    """Find byte-identical images appearing in more than one data split."""
-    split_dirs = split_dirs or {
-        "train": config.TRAIN_DIR,
-        "val": config.VAL_DIR,
-        "test": config.TEST_DIR,
-    }
-    hashes = defaultdict(list)
-    for split_name, split_dir in split_dirs.items():
-        image_paths, _ = load_data(split_dir)
-        for image_path in image_paths:
-            with open(image_path, "rb") as image_file:
-                digest = hashlib.sha256(image_file.read()).hexdigest()
-            hashes[digest].append((split_name, image_path))
 
-    leaks = [paths for paths in hashes.values() if len({p[0] for p in paths}) > 1]
-    if leaks:
-        warnings.warn(
-            f"Found {len(leaks)} byte-identical image group(s) across data splits. "
-            "Metrics may be optimistic; rebuild the splits after grouping duplicates.",
-            stacklevel=2,
-        )
-    return leaks
+# audit_split_leakage lived here. It compared raw byte hashes, which is why
+# it called the old dataset TEMIZ while 42 of 90 Eye_Bags test images were
+# augmented copies of training images. data_prep/leakage.py replaces it and
+# also matches derivation stems, group ids and mirrored perceptual hashes.
+
 
 def get_dataloaders(batch_size=config.BATCH_SIZE, shuffle=True):
-    train_images, train_labels = load_data(config.TRAIN_DIR)
-    val_images, val_labels = load_data(config.VAL_DIR)
-    test_images, test_labels = load_data(config.TEST_DIR)
-
-    train_dataset = SkinDataset(train_images, train_labels, transform=train_transform)
-    val_dataset = SkinDataset(val_images, val_labels, transform=val_transform)
-    test_dataset = SkinDataset(test_images, test_labels, transform=val_transform)
+    splits = {}
+    for name, directory in (("train", config.TRAIN_DIR),
+                            ("val", config.VAL_DIR),
+                            ("test", config.TEST_DIR)):
+        records, image_dir = load_data(directory)
+        transform = train_transform if name == "train" else val_transform
+        splits[name] = SkinDataset(records, image_dir, transform=transform)
 
     # pin_memory only helps CUDA; on Apple Silicon the win comes from parallel
     # JPEG decoding in worker processes.
     workers = 4 if config.DEVICE != "cuda" else 2
     pin = config.DEVICE == "cuda"
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=workers, pin_memory=pin, persistent_workers=workers > 0)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=workers, pin_memory=pin, persistent_workers=workers > 0)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=workers, pin_memory=pin, persistent_workers=workers > 0)
-
-    return train_loader, val_loader, test_loader
+    loaders = []
+    for name in ("train", "val", "test"):
+        loaders.append(DataLoader(
+            splits[name], batch_size=batch_size,
+            shuffle=shuffle and name == "train",
+            num_workers=workers, pin_memory=pin,
+            persistent_workers=workers > 0))
+    return tuple(loaders)
