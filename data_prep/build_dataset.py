@@ -265,6 +265,65 @@ def stage_dedup() -> int:
     return len(groups)
 
 
+def group_source(group: List[dict]) -> str:
+    """The source a group belongs to. Groups are near-duplicates, so the
+    representative's source describes the whole group."""
+    return min(group, key=lambda item: item["id"])["source"]
+
+
+def source_quotas(by_class: Dict[str, List[dict]]) -> Dict[str, Dict[str, int]]:
+    """Per-source group budgets so classes sharing a pool draw the same mix.
+
+    Acne and Eczema both come from DermNet and SCIN, but in different
+    proportions: 81/19 against 32/68. That difference is a shortcut on its
+    own — the source, not the skin, tells the two apart, and the audit
+    measured it as Eczema/bytes_per_pixel AUC 0.728 while the same feature
+    separated Eczema's own two sources at 0.746. Capping every class in a
+    family at the smallest per-source supply makes the mix identical, so
+    source carries no information about the label.
+
+    Classes that do not share their pool with another class are left alone;
+    there is nothing to equalise against.
+    """
+    available: Dict[str, collections.Counter] = {}
+    for label, records in by_class.items():
+        groups = collections.defaultdict(list)
+        for record in records:
+            groups[record["group_id"]].append(record)
+        available[label] = collections.Counter(
+            group_source(group) for group in groups.values())
+
+    families = collections.defaultdict(list)
+    for label, counter in available.items():
+        families[frozenset(counter)].append(label)
+
+    quotas: Dict[str, Dict[str, int]] = {}
+    for sources, labels in families.items():
+        if len(labels) < 2:
+            continue
+        quota = {source: min(available[label][source] for label in labels)
+                 for source in sources}
+        for label in labels:
+            quotas[label] = quota
+    return quotas
+
+
+def apply_source_quota(group_list: List[List[dict]],
+                       quota: Optional[Dict[str, int]]) -> List[List[dict]]:
+    """Keep at most quota[source] groups per source, order preserved."""
+    if not quota:
+        return group_list
+    taken = collections.Counter()
+    kept = []
+    for group in group_list:
+        source = group_source(group)
+        if taken[source] >= quota.get(source, 0):
+            continue
+        taken[source] += 1
+        kept.append(group)
+    return kept
+
+
 def stage_split(target_per_class: int) -> Dict[str, int]:
     """Group-disjoint split, stratified on class and sharpness quintile."""
     manifest = PV.load_manifest()
@@ -290,12 +349,14 @@ def stage_split(target_per_class: int) -> Dict[str, int]:
     # fewer records would still emit the leftovers from the previous run.
     assignments = {r["id"]: {"split": None, "split_scheme": None} for r in rows}
     counts = collections.Counter()
+    quotas = source_quotas(by_class)
     for label, records in sorted(by_class.items()):
         groups = collections.defaultdict(list)
         for record in records:
             groups[record["group_id"]].append(record)
         group_list = list(groups.values())
         rng.shuffle(group_list)
+        group_list = apply_source_quota(group_list, quotas.get(label))
         # Stratify by quintile of the group's first member, then walk each
         # stratum in turn so every split sees the same sharpness mix.
         by_quintile = collections.defaultdict(list)
