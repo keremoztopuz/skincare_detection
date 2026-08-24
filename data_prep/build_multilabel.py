@@ -44,11 +44,17 @@ SEED = 42
 #
 # Within each stratum the positives and negatives are trimmed to the same
 # count. The surplus keeps its image and loses only this one label.
+#   redaction  SCIN masks identifying features with a filled black box, and
+#              DermNet has censor bars of its own. Burned into the pixels, so
+#              the same family as the DermNet watermark, and uneven inside a
+#              single source: within DermNet, 55 redacted images are acne
+#              positive against 123 negative. The probe made it the strongest
+#              single feature at AUC 0.631.
 BALANCED_ON = {
-    "Wrinkles": "age_band",
-    "Eye_Bags": "age_band",
-    "Acne": "source",
-    "Eczema": "source",
+    "Wrinkles": ("age_band",),
+    "Eye_Bags": ("age_band",),
+    "Acne": ("source", "redaction"),
+    "Eczema": ("source", "redaction"),
 }
 
 # A diagnosis of one skin condition rules out the other, but says nothing
@@ -94,13 +100,15 @@ def balance_conditions(updates, manifest):
     training on. That is the whole reason for the three-state label.
     """
     rng = random.Random(SEED)
-    for name, key in sorted(BALANCED_ON.items()):
+    for name, keys in sorted(BALANCED_ON.items()):
         buckets = collections.defaultdict(lambda: {0: [], 1: []})
         for image_id, changes in updates.items():
             value = (changes.get("conditions") or {}).get(name)
             if value is None:
                 continue
-            buckets[manifest[image_id].get(key) or "?"][value].append(image_id)
+            record = manifest[image_id]
+            stratum = tuple(record.get(k) or "?" for k in keys)
+            buckets[stratum][value].append(image_id)
 
         dropped = 0
         for sides in buckets.values():
@@ -113,7 +121,7 @@ def balance_conditions(updates, manifest):
                     updates[image_id]["conditions"][name] = None
                     dropped += 1
         if dropped:
-            print(f"{key} esitleme {name}: {dropped} etiket geri alindi")
+            print(f"{'+'.join(keys)} esitleme {name}: {dropped} etiket geri alindi")
 
 
 def main() -> int:
