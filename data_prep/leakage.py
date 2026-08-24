@@ -150,9 +150,12 @@ def audit(data_dir: str, manifest_path: Optional[str] = None) -> List[Dict[str, 
     for i in range(len(paths)):
         a_straight, a_mirror = hashes[paths[i]]
         for j in range(i + 1, len(paths)):
-            b_straight, _ = hashes[paths[j]]
-            close = (bin(a_straight ^ b_straight).count("1") <= PHASH_RADIUS
-                     or bin(a_mirror ^ b_straight).count("1") <= PHASH_RADIUS)
+            b_straight, b_mirror = hashes[paths[j]]
+            # Both mirror directions; see build_dataset.stage_dedup. A
+            # one-sided test makes the verdict depend on iteration order.
+            close = min(bin(a_straight ^ b_straight).count("1"),
+                        bin(a_mirror ^ b_straight).count("1"),
+                        bin(a_straight ^ b_mirror).count("1")) <= PHASH_RADIUS
             if not close:
                 continue
             left, right = index[paths[i]], index[paths[j]]
