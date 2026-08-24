@@ -53,6 +53,12 @@ ACQUISITION_FEATURES = frozenset({
     # every FFHQ image has a face, only about a quarter of the DermNet/SCIN
     # images do. Nothing about acne decides that, so it belongs in the gate.
     "has_face", "det_score", "crop_from_face",
+    # SCIN masks identifying features with a solid black rectangle. It is a
+    # burned-in marker, and it is not evenly spread: 45% of the Acne images
+    # carry one against 16% of the Eczema ones. Currently AUC 0.59, under the
+    # gate, but it is the same family of cue as the DermNet watermark and it
+    # should not be allowed to grow unwatched.
+    "redaction",
 })
 
 
@@ -128,6 +134,7 @@ def extract_features(path: str) -> Optional[Dict[str, float]]:
         "red_mean": float(red.mean()),
         "colorfulness": colorfulness,
         "quant_signature": float(quantization % 10007) if quantization is not None else -1.0,
+        "redaction": float((gray < 8).mean()),
     }
 
 
