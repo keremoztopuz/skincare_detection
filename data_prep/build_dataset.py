@@ -280,7 +280,11 @@ def stage_split(target_per_class: int) -> Dict[str, int]:
         value = (record.get("quality") or {}).get("lapvar", 0.0)
         return int(np.searchsorted(edges, value)) if len(edges) else 0
 
-    assignments, counts = {}, collections.Counter()
+    # Clear first. A record keeps whatever split an earlier build gave it,
+    # and materialize writes anything that has one, so a rebuild that assigns
+    # fewer records would still emit the leftovers from the previous run.
+    assignments = {r["id"]: {"split": None, "split_scheme": None} for r in rows}
+    counts = collections.Counter()
     for label, records in sorted(by_class.items()):
         groups = collections.defaultdict(list)
         for record in records:
@@ -306,9 +310,16 @@ def stage_split(target_per_class: int) -> Dict[str, int]:
         val_end = train_end + int(total * SPLITS[1][1])
         for index, group in enumerate(ordered):
             split = "train" if index < train_end else ("val" if index < val_end else "test")
-            for record in group:
-                assignments[record["id"]] = {"split": split, "split_scheme": "iid_v2"}
-                counts[(label, split)] += 1
+            # One representative per group. A group is a set of near-identical
+            # images, and for Roboflow those are its own baked-in augmented
+            # copies: 1899 Eye_Bags images across 582 groups. Keeping them all
+            # inflates that class 3.3x and drags the sharpness mix with it,
+            # while adding nothing the train-time nuisance augmentation does
+            # not already produce randomly. Picking by id keeps it stable
+            # across rebuilds.
+            record = min(group, key=lambda item: item["id"])
+            assignments[record["id"]] = {"split": split, "split_scheme": "iid_v2"}
+            counts[(label, split)] += 1
 
     PV.update_records(assignments)
     print(f"{'sinif':<12} {'train':>6} {'val':>5} {'test':>5}")
