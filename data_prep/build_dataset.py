@@ -226,8 +226,13 @@ def stage_dedup() -> int:
         hash_a, mirror_a = hashes[ids[i]]
         for j in range(i + 1, len(ids)):
             hash_b, mirror_b = hashes[ids[j]]
-            if (bin(hash_a ^ hash_b).count("1") <= PHASH_RADIUS
-                    or bin(mirror_a ^ hash_b).count("1") <= PHASH_RADIUS):
+            # Both mirror directions. Comparing only mirror(a) against b
+            # makes the match order-dependent: a pair can sit at 8 bits one
+            # way and 10 the other, so whether a flipped duplicate is caught
+            # depended on which image the loop reached first.
+            if min(bin(hash_a ^ hash_b).count("1"),
+                   bin(mirror_a ^ hash_b).count("1"),
+                   bin(hash_a ^ mirror_b).count("1")) <= PHASH_RADIUS:
                 union(ids[i], ids[j])
 
     groups = collections.defaultdict(list)
