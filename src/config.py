@@ -2,7 +2,7 @@ import os
 import torch
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(ROOT_DIR, "orchestration_data")
+DATA_DIR = os.path.join(ROOT_DIR, "orchestration_data_v4")
 TRAIN_DIR = os.path.join(DATA_DIR, "train")
 VAL_DIR = os.path.join(DATA_DIR, "val")
 TEST_DIR = os.path.join(DATA_DIR, "test")
@@ -32,10 +32,12 @@ POS_WEIGHT_POWER = 0.25
 AUXILIARY_CE_WEIGHT = 0.25
 MIN_CHECKPOINT_AUROC = 0.50
 CLASS_NAMES = ["Acne", "Eczema", "Eye_Bags", "Wrinkles"]
-# Clean-face negatives: trained with an all-zero target so every head
-# learns to stay quiet on healthy skin. Not a model output class.
-NEGATIVE_CLASS_NAME = "Healthy"
-NEGATIVE_LABEL = -1
+# Labels are per-condition and may be unknown. A DermNet acne photo of a
+# forearm says nothing about that person's wrinkles, and scoring it as "no
+# wrinkles" would be a false negative, so the loss and the metrics both mask
+# whatever nobody has judged. There is no Healthy class any more: a clean
+# image is simply one whose conditions are all known and all zero.
+LABEL_FILENAME = "{split}_labels.jsonl"
 SEED = 42
 
 DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
@@ -47,6 +49,4 @@ STD = [0.2427, 0.2027, 0.1930]
 CHECKPOINT_DIR = os.path.join(ROOT_DIR, "outputs", "checkpoints")
 MODEL_SAVE_PATH = os.path.join(ROOT_DIR, "outputs", "model", "best_model.pth")
 THRESHOLDS_SAVE_PATH = os.path.join(ROOT_DIR, "outputs", "model", "thresholds.json")
-TOP1_MODEL_SAVE_PATH = os.path.join(ROOT_DIR, "outputs", "model", "best_top1_model.pth")
-TOP1_THRESHOLDS_SAVE_PATH = os.path.join(ROOT_DIR, "outputs", "model", "top1_thresholds.json")
 LOGS_DIR = os.path.join(ROOT_DIR, "outputs", "logs")
