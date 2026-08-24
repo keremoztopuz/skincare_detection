@@ -52,6 +52,7 @@ def load_ffhq_decisions() -> dict:
 def main() -> int:
     manifest = PV.load_manifest()
     decisions = load_ffhq_decisions()
+    updates_glasses = []
 
     # The review sheet keys state by a hash of the canonical file, while the
     # manifest is keyed by a hash of the original. Both are already recorded,
@@ -61,6 +62,13 @@ def main() -> int:
     # to draw a replacement back out. Only "rejected" is final.
     by_review_id = {}
     for record in manifest.values():
+        # Frames cross the periorbital region, so a glasses-wearing face
+        # cannot be judged reliably for either wrinkles or eye bags, and the
+        # frame itself is a strong feature a classifier will happily use.
+        if record.get("glasses") not in (None, "None"):
+            if record["status"] == "canonical":
+                updates_glasses.append(record["id"])
+            continue
         if record.get("source") == "ffhq" and record["status"] in ("canonical", "held_out"):
             digest = record.get("canonical_sha256")
             if digest:
@@ -122,6 +130,11 @@ def main() -> int:
         reason = "review_skip" if record["id"] in judged else "unreviewed"
         updates[record["id"]] = {"status": "held_out", "reject_reason": reason}
         reserve[reason] += 1
+
+    for image_id in updates_glasses:
+        updates[image_id] = {"status": "held_out", "reject_reason": "glasses"}
+    if updates_glasses:
+        print(f"gozluk elendi: {len(updates_glasses)}")
 
     retired = collections.Counter()
     for record in manifest.values():
