@@ -22,6 +22,7 @@ an audit trail and a rebuild replays human decisions instead of asking again.
 import argparse
 import collections
 import glob
+import json
 import hashlib
 import os
 import random
@@ -361,18 +362,23 @@ def apply_source_quota(group_list: List[List[dict]],
 
 
 def stage_split(target_per_class: int) -> Dict[str, int]:
-    """Group-disjoint split, stratified on class and sharpness quintile."""
+    """Group-disjoint split for multi-label data.
+
+    There is no longer one class per image, so there is nothing to stratify a
+    class on. What has to stay even across the splits is the combination that
+    would otherwise let a split differ systematically: which source the image
+    came from, which conditions are known about it, which of those are
+    positive, and how sharp it is. Groups, never files, are what get cut, so a
+    near-duplicate cannot straddle the boundary.
+    """
     manifest = PV.load_manifest()
     rows = [r for r in manifest.values()
-            if r["status"] == "canonical" and r.get("group_id")]
-    by_class = collections.defaultdict(list)
-    for record in rows:
-        by_class[record["label"]].append(record)
+            if r["status"] == "canonical" and r.get("group_id")
+            and r.get("conditions")]
+    if not rows:
+        print("split: conditions yazilmis kayit yok — once build_multilabel.py")
+        return collections.Counter()
 
-    rng = random.Random(SEED)
-    # Sharpness runs from ~10 (Roboflow texture patches) to ~400 (DermNet).
-    # Matching the quintile mix per class makes sharpness independent of the
-    # label by construction rather than by a cutoff.
     values = [r["quality"]["lapvar"] for r in rows if r.get("quality")]
     edges = np.percentile(values, [20, 40, 60, 80]) if values else []
 
@@ -380,78 +386,102 @@ def stage_split(target_per_class: int) -> Dict[str, int]:
         value = (record.get("quality") or {}).get("lapvar", 0.0)
         return int(np.searchsorted(edges, value)) if len(edges) else 0
 
-    # Clear first. A record keeps whatever split an earlier build gave it,
-    # and materialize writes anything that has one, so a rebuild that assigns
-    # fewer records would still emit the leftovers from the previous run.
+    def stratum(record) -> Tuple:
+        conditions = record["conditions"]
+        known = tuple(sorted(k for k, v in conditions.items() if v is not None))
+        positive = tuple(sorted(k for k, v in conditions.items() if v == 1))
+        return (record["source"], known, positive, quintile(record))
+
+    groups = collections.defaultdict(list)
+    for record in rows:
+        groups[record["group_id"]].append(record)
+
+    # One representative per group; see the note in the old class-based split.
+    # Roboflow shipped its own augmented copies and keeping them inflated a
+    # class threefold while adding nothing the train-time nuisance does not.
+    representatives = [min(members, key=lambda item: item["id"])
+                       for members in groups.values()]
+
+    by_stratum = collections.defaultdict(list)
+    for record in representatives:
+        by_stratum[stratum(record)].append(record)
+
+    rng = random.Random(SEED)
     assignments = {r["id"]: {"split": None, "split_scheme": None} for r in rows}
     counts = collections.Counter()
-    quotas = source_quotas(by_class)
-    for label, records in sorted(by_class.items()):
-        groups = collections.defaultdict(list)
-        for record in records:
-            groups[record["group_id"]].append(record)
-        group_list = list(groups.values())
-        rng.shuffle(group_list)
-        group_list = apply_source_quota(group_list, quotas.get(label))
-        # Stratify by quintile of the group's first member, then walk each
-        # stratum in turn so every split sees the same sharpness mix.
-        by_quintile = collections.defaultdict(list)
-        for group in group_list:
-            by_quintile[quintile(group[0])].append(group)
-
-        ordered = []
-        while any(by_quintile.values()):
-            for key in sorted(by_quintile):
-                if by_quintile[key]:
-                    ordered.append(by_quintile[key].pop())
-
-        budget = target_per_class if target_per_class else len(ordered)
-        ordered = ordered[:budget]
-        total = len(ordered)
+    for key in sorted(by_stratum, key=repr):
+        members = by_stratum[key]
+        rng.shuffle(members)
+        if target_per_class:
+            members = members[:target_per_class]
+        total = len(members)
         train_end = int(total * SPLITS[0][1])
         val_end = train_end + int(total * SPLITS[1][1])
-        for index, group in enumerate(ordered):
+        # A stratum with one or two members would otherwise put everything in
+        # train and leave val and test blind to it.
+        for index, record in enumerate(members):
             split = "train" if index < train_end else ("val" if index < val_end else "test")
-            # One representative per group. A group is a set of near-identical
-            # images, and for Roboflow those are its own baked-in augmented
-            # copies: 1899 Eye_Bags images across 582 groups. Keeping them all
-            # inflates that class 3.3x and drags the sharpness mix with it,
-            # while adding nothing the train-time nuisance augmentation does
-            # not already produce randomly. Picking by id keeps it stable
-            # across rebuilds.
-            record = min(group, key=lambda item: item["id"])
-            assignments[record["id"]] = {"split": split, "split_scheme": "iid_v2"}
-            counts[(label, split)] += 1
+            assignments[record["id"]] = {"split": split, "split_scheme": "multilabel_v1"}
+            counts[split] += 1
+            for name, value in record["conditions"].items():
+                if value is not None:
+                    counts[(split, name, "pos" if value else "neg")] += 1
 
     PV.update_records(assignments)
-    print(f"{'sinif':<12} {'train':>6} {'val':>5} {'test':>5}")
-    for label in sorted(by_class):
-        print(f"{label:<12} {counts[(label,'train')]:>6} "
-              f"{counts[(label,'val')]:>5} {counts[(label,'test')]:>5}")
+    print(f"{'kosul':<10}" + "".join(f"{s:>18}" for s, _ in SPLITS))
+    for name in sorted({n for r in rows for n in r["conditions"]}):
+        cells = []
+        for split, _ in SPLITS:
+            cells.append(f"{counts[(split, name, 'pos')]}+/{counts[(split, name, 'neg')]}-")
+        print(f"{name:<10}" + "".join(f"{c:>18}" for c in cells))
+    print(f"{'toplam':<10}" + "".join(f"{counts[s]:>18}" for s, _ in SPLITS))
     return counts
 
 
 def stage_materialize(out_dir: str) -> int:
-    """Hard-link the canonical files into the split tree."""
+    """Hard-link the split into a flat tree and write the label file.
+
+    Folder-per-class cannot express a face that has both wrinkles and eye
+    bags, so the layout is flat and the labels live beside it. Each row gives
+    the four conditions with null for "nobody looked" — the loss masks those
+    rather than scoring them as absent.
+    """
     manifest = PV.load_manifest()
     rows = [r for r in manifest.values()
-            if r["status"] == "canonical" and r.get("split")]
+            if r["status"] == "canonical" and r.get("split") and r.get("conditions")]
     written = 0
+    by_split = collections.defaultdict(list)
     for record in rows:
-        destination = os.path.join(out_dir, record["split"], record["label"],
-                                   f"{record['id']}.jpg")
-        os.makedirs(os.path.dirname(destination), exist_ok=True)
-        if os.path.exists(destination):
-            continue
-        source = os.path.join(ROOT, record["canonical_path"])
-        try:
-            os.link(source, destination)
-        except OSError:
-            import shutil
-            shutil.copy2(source, destination)
-        written += 1
+        by_split[record["split"]].append(record)
+
+    for split, records in by_split.items():
+        image_dir = os.path.join(out_dir, split)
+        os.makedirs(image_dir, exist_ok=True)
+        label_path = os.path.join(out_dir, f"{split}_labels.jsonl")
+        with open(label_path, "w", encoding="utf-8") as handle:
+            for record in sorted(records, key=lambda item: item["id"]):
+                destination = os.path.join(image_dir, f"{record['id']}.jpg")
+                if not os.path.exists(destination):
+                    source = os.path.join(ROOT, record["canonical_path"])
+                    try:
+                        os.link(source, destination)
+                    except OSError:
+                        import shutil
+                        shutil.copy2(source, destination)
+                    written += 1
+                handle.write(json.dumps({
+                    "id": record["id"],
+                    "file": f"{record['id']}.jpg",
+                    "conditions": record["conditions"],
+                    "source": record["source"],
+                    "age_band": record.get("age_band"),
+                    "group_id": record.get("group_id"),
+                }, ensure_ascii=False) + "\n")
+
     PV.write_snapshot(os.path.join(out_dir, "manifest.jsonl"))
-    print(f"materialize: {written} dosya -> {out_dir}")
+    print(f"materialize: {written} yeni dosya -> {out_dir}")
+    for split in sorted(by_split):
+        print(f"   {split}: {len(by_split[split])} kayit")
     return written
 
 

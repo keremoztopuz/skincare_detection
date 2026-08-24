@@ -20,6 +20,7 @@ so a partially labelled image still contributes everything it does know.
 
 import collections
 import os
+import random
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -27,6 +28,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import provenance as PV
 
 CONDITIONS = ("Acne", "Eczema", "Eye_Bags", "Wrinkles")
+SEED = 42
+
+# Conditions whose prevalence rises with age. Left alone, the model could
+# answer "is this face old" instead of "does it have wrinkles" — the wrinkle
+# review ran 68% positive in the oldest band against 18% in the youngest. So
+# within each age band the positives and negatives are trimmed to the same
+# count, and whatever does not fit is set back to unknown rather than thrown
+# away: the image still teaches every other head.
+AGE_MATCHED = ("Wrinkles", "Eye_Bags")
 
 # A diagnosis of one skin condition rules out the other, but says nothing
 # about the periorbital conditions — and these images are mostly not faces.
@@ -63,13 +73,42 @@ def decisions_by_job():
     return jobs
 
 
+def balance_by_age(updates, manifest):
+    """Trim age-linked conditions to an equal count per band.
+
+    Only the condition is withdrawn, never the image: setting Wrinkles back to
+    unknown on a surplus face leaves its Eye_Bags label intact and still worth
+    training on. That is the whole reason for the three-state label.
+    """
+    rng = random.Random(SEED)
+    for name in AGE_MATCHED:
+        buckets = collections.defaultdict(lambda: {0: [], 1: []})
+        for image_id, changes in updates.items():
+            value = (changes.get("conditions") or {}).get(name)
+            if value is None:
+                continue
+            band = manifest[image_id].get("age_band") or "?"
+            buckets[band][value].append(image_id)
+
+        dropped = 0
+        for band, sides in buckets.items():
+            for side in (0, 1):
+                sides[side].sort()
+                rng.shuffle(sides[side])
+            keep = min(len(sides[0]), len(sides[1]))
+            for side in (0, 1):
+                for image_id in sides[side][keep:]:
+                    updates[image_id]["conditions"][name] = None
+                    dropped += 1
+        if dropped:
+            print(f"yas esitleme {name}: {dropped} etiket geri alindi")
+
+
 def main() -> int:
     manifest = PV.load_manifest()
     jobs = decisions_by_job()
 
     updates = {}
-    known = collections.Counter()
-    positive = collections.Counter()
     retired = collections.Counter()
 
     for record in manifest.values():
@@ -94,7 +133,13 @@ def main() -> int:
         if all(value is None for value in conditions.values()):
             continue
         updates[record["id"]] = {"conditions": conditions}
-        for name, value in conditions.items():
+
+    balance_by_age(updates, manifest)
+
+    known = collections.Counter()
+    positive = collections.Counter()
+    for changes in updates.values():
+        for name, value in (changes.get("conditions") or {}).items():
             if value is not None:
                 known[name] += 1
                 positive[name] += value
