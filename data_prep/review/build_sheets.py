@@ -35,12 +35,16 @@ LABEL_HEIGHT = 16
 # the lid alone: the cheek gives the contrast that separates a bag from a
 # shadow, and the brow keeps the face recognisable enough to spot a squint.
 BAND = (0.10, 0.24, 0.90, 0.60)
+# The acne/eczema call needs cheeks, chin and forehead, so that pass shows the
+# whole crop. It is also a coarser judgement than an eye bag, which is what
+# makes the higher density affordable.
+FULL = (0.0, 0.0, 1.0, 1.0)
 AGE_ORDER = {"70_plus": 0, "50_69": 1, "40_49": 2, "30_39": 3, "20_29": 4}
 RESERVE_REASONS = {"review_skip", "unreviewed",
                    "age_match_surplus:Healthy", "age_match_surplus:Wrinkles"}
 
 
-def candidates():
+def candidates(all_ffhq: bool = False):
     items = []
     for record in PV.load_manifest().values():
         if record.get("source") != "ffhq" or not record.get("canonical_path"):
@@ -51,6 +55,11 @@ def candidates():
             priority = 0
         elif record["status"] == "held_out" and record.get("reject_reason") in RESERVE_REASONS:
             priority = 1
+        elif all_ffhq and record["status"] in ("canonical", "held_out"):
+            # The acne pass wants every usable FFHQ face, including the ones
+            # already labelled Wrinkles: a face with wrinkles still tells the
+            # Acne head what clear skin looks like.
+            priority = 2
         else:
             continue
         if not os.path.exists(os.path.join(ROOT, record["canonical_path"])):
@@ -64,10 +73,11 @@ def candidates():
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--mode", choices=("eyeband", "full"), default="eyeband")
     parser.add_argument("--out", default=OUT_DIR)
     arguments = parser.parse_args()
 
-    items = candidates()
+    items = candidates(all_ffhq=arguments.mode == "full")
     if arguments.limit:
         items = items[:arguments.limit]
     os.makedirs(arguments.out, exist_ok=True)
@@ -75,13 +85,18 @@ def main() -> int:
         os.remove(os.path.join(arguments.out, stale))
 
     index = []
-    for number in range((len(items) + PER_SHEET - 1) // PER_SHEET):
-        chunk = items[number * PER_SHEET:(number + 1) * PER_SHEET]
-        rows = (len(chunk) + COLUMNS - 1) // COLUMNS
+    full = arguments.mode == "full"
+    per_sheet, columns = (40, 8) if full else (PER_SHEET, COLUMNS)
+    cell_w = 200 if full else CELL_WIDTH
+    cell_h = cell_w if full else CELL_HEIGHT
+    box_frac = FULL if full else BAND
+    for number in range((len(items) + per_sheet - 1) // per_sheet):
+        chunk = items[number * per_sheet:(number + 1) * per_sheet]
+        rows = (len(chunk) + columns - 1) // columns
         canvas = Image.new(
             "RGB",
-            (COLUMNS * (CELL_WIDTH + PAD) + PAD,
-             rows * (CELL_HEIGHT + PAD + LABEL_HEIGHT) + PAD),
+            (columns * (cell_w + PAD) + PAD,
+             rows * (cell_h + PAD + LABEL_HEIGHT) + PAD),
             (18, 18, 22))
         draw = ImageDraw.Draw(canvas)
         cells = []
@@ -89,13 +104,13 @@ def main() -> int:
             with Image.open(os.path.join(ROOT, record["canonical_path"])) as handle:
                 image = handle.convert("RGB")
             width, height = image.size
-            box = (int(width * BAND[0]), int(height * BAND[1]),
-                   int(width * BAND[2]), int(height * BAND[3]))
-            image = image.crop(box).resize((CELL_WIDTH, CELL_HEIGHT), Image.LANCZOS)
-            x = PAD + (position % COLUMNS) * (CELL_WIDTH + PAD)
-            y = PAD + (position // COLUMNS) * (CELL_HEIGHT + PAD + LABEL_HEIGHT)
+            box = (int(width * box_frac[0]), int(height * box_frac[1]),
+                   int(width * box_frac[2]), int(height * box_frac[3]))
+            image = image.crop(box).resize((cell_w, cell_h), Image.LANCZOS)
+            x = PAD + (position % columns) * (cell_w + PAD)
+            y = PAD + (position // columns) * (cell_h + PAD + LABEL_HEIGHT)
             canvas.paste(image, (x, y))
-            draw.text((x + 2, y + CELL_HEIGHT + 2), str(position + 1),
+            draw.text((x + 2, y + cell_h + 2), str(position + 1),
                       fill=(190, 190, 200))
             cells.append({
                 "cell": position + 1,

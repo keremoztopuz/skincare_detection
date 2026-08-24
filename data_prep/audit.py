@@ -48,6 +48,11 @@ PERMUTATION_ALPHA = 0.01
 ACQUISITION_FEATURES = frozenset({
     "width", "height", "log_pixels", "aspect", "bytes_per_pixel",
     "quant_signature", "lapvar", "high_freq_ratio",
+    # Framing, not pathology. Whether a face is in shot is the photographer's
+    # choice, and it separates a portrait pool from a clinical one perfectly:
+    # every FFHQ image has a face, only about a quarter of the DermNet/SCIN
+    # images do. Nothing about acne decides that, so it belongs in the gate.
+    "has_face", "det_score", "crop_from_face",
 })
 
 
@@ -126,7 +131,27 @@ def extract_features(path: str) -> Optional[Dict[str, float]]:
     }
 
 
+def face_features(manifest, image_path: str) -> Dict[str, float]:
+    """Framing facts the pixels alone cannot report.
+
+    Canonical files are named by manifest id, so the join is a lookup. A file
+    with no record contributes neutral values rather than a guess.
+    """
+    record = manifest.get(os.path.splitext(os.path.basename(image_path))[0], {})
+    face = record.get("face") or {}
+    crop = record.get("crop") or {}
+    score = float(face.get("det_score") or 0.0)
+    return {
+        "has_face": 1.0 if score else 0.0,
+        "det_score": score,
+        "crop_from_face": 1.0 if crop.get("source") == "face" else 0.0,
+    }
+
+
 def collect(data_dir: str, splits=("train", "val")) -> Tuple[np.ndarray, np.ndarray, List[str], List[str]]:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import provenance as PV
+    manifest = PV.load_manifest()
     rows, labels, paths = [], [], []
     class_names = sorted({
         os.path.basename(os.path.dirname(p))
@@ -142,6 +167,7 @@ def collect(data_dir: str, splits=("train", "val")) -> Tuple[np.ndarray, np.ndar
             features = extract_features(path)
             if features is None:
                 continue
+            features.update(face_features(manifest, path))
             rows.append(features)
             labels.append(index[os.path.basename(os.path.dirname(path))])
             paths.append(path)
