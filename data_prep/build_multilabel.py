@@ -30,13 +30,26 @@ import provenance as PV
 CONDITIONS = ("Acne", "Eczema", "Eye_Bags", "Wrinkles")
 SEED = 42
 
-# Conditions whose prevalence rises with age. Left alone, the model could
-# answer "is this face old" instead of "does it have wrinkles" — the wrinkle
-# review ran 68% positive in the oldest band against 18% in the youngest. So
-# within each age band the positives and negatives are trimmed to the same
-# count, and whatever does not fit is set back to unknown rather than thrown
-# away: the image still teaches every other head.
-AGE_MATCHED = ("Wrinkles", "Eye_Bags")
+# What each condition has to be balanced against, so that the thing named
+# here cannot stand in for the diagnosis.
+#
+#   age_band   wrinkles and eye bags both get commoner with age — the wrinkle
+#              review ran 68% positive in the oldest band against 18% in the
+#              youngest — so unmatched, "is this face old" would answer the
+#              question.
+#   source     acne and eczema come from the same two pools in opposite
+#              proportions: acne positives were 81% DermNet while acne
+#              negatives were 58% SCIN, and the probe read that at AUROC
+#              0.730 from acquisition features alone.
+#
+# Within each stratum the positives and negatives are trimmed to the same
+# count. The surplus keeps its image and loses only this one label.
+BALANCED_ON = {
+    "Wrinkles": "age_band",
+    "Eye_Bags": "age_band",
+    "Acne": "source",
+    "Eczema": "source",
+}
 
 # A diagnosis of one skin condition rules out the other, but says nothing
 # about the periorbital conditions — and these images are mostly not faces.
@@ -73,25 +86,24 @@ def decisions_by_job():
     return jobs
 
 
-def balance_by_age(updates, manifest):
-    """Trim age-linked conditions to an equal count per band.
+def balance_conditions(updates, manifest):
+    """Trim each condition to an equal count per stratum.
 
     Only the condition is withdrawn, never the image: setting Wrinkles back to
     unknown on a surplus face leaves its Eye_Bags label intact and still worth
     training on. That is the whole reason for the three-state label.
     """
     rng = random.Random(SEED)
-    for name in AGE_MATCHED:
+    for name, key in sorted(BALANCED_ON.items()):
         buckets = collections.defaultdict(lambda: {0: [], 1: []})
         for image_id, changes in updates.items():
             value = (changes.get("conditions") or {}).get(name)
             if value is None:
                 continue
-            band = manifest[image_id].get("age_band") or "?"
-            buckets[band][value].append(image_id)
+            buckets[manifest[image_id].get(key) or "?"][value].append(image_id)
 
         dropped = 0
-        for band, sides in buckets.items():
+        for sides in buckets.values():
             for side in (0, 1):
                 sides[side].sort()
                 rng.shuffle(sides[side])
@@ -101,7 +113,7 @@ def balance_by_age(updates, manifest):
                     updates[image_id]["conditions"][name] = None
                     dropped += 1
         if dropped:
-            print(f"yas esitleme {name}: {dropped} etiket geri alindi")
+            print(f"{key} esitleme {name}: {dropped} etiket geri alindi")
 
 
 def main() -> int:
@@ -134,7 +146,7 @@ def main() -> int:
             continue
         updates[record["id"]] = {"conditions": conditions}
 
-    balance_by_age(updates, manifest)
+    balance_conditions(updates, manifest)
 
     known = collections.Counter()
     positive = collections.Counter()
