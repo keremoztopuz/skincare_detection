@@ -318,14 +318,14 @@ def stage_split(target_per_class: int) -> Dict[str, int]:
     return counts
 
 
-def stage_materialize() -> int:
+def stage_materialize(out_dir: str) -> int:
     """Hard-link the canonical files into the split tree."""
     manifest = PV.load_manifest()
     rows = [r for r in manifest.values()
             if r["status"] == "canonical" and r.get("split")]
     written = 0
     for record in rows:
-        destination = os.path.join(OUT_DIR, record["split"], record["label"],
+        destination = os.path.join(out_dir, record["split"], record["label"],
                                    f"{record['id']}.jpg")
         os.makedirs(os.path.dirname(destination), exist_ok=True)
         if os.path.exists(destination):
@@ -337,8 +337,8 @@ def stage_materialize() -> int:
             import shutil
             shutil.copy2(source, destination)
         written += 1
-    PV.write_snapshot(os.path.join(OUT_DIR, "manifest.jsonl"))
-    print(f"materialize: {written} dosya -> {OUT_DIR}")
+    PV.write_snapshot(os.path.join(out_dir, "manifest.jsonl"))
+    print(f"materialize: {written} dosya -> {out_dir}")
     return written
 
 
@@ -349,6 +349,11 @@ def main() -> int:
     parser.add_argument("--limit", type=int)
     parser.add_argument("--target", type=int, default=0,
                         help="sinif basina hedef grup sayisi; 0 = sinirsiz")
+    # materialize only ever adds links and never removes them, so pointing a
+    # rebuild at a directory that already holds an older build silently mixes
+    # the two. A new build gets a new directory; the old one stays readable.
+    parser.add_argument("--out", default=OUT_DIR,
+                        help="cikis agaci (varsayilan: orchestration_data_v2)")
     arguments = parser.parse_args()
 
     stages = (("ingest", "canonicalize", "dedup", "split", "materialize")
@@ -364,7 +369,7 @@ def main() -> int:
         elif stage == "split":
             stage_split(arguments.target)
         elif stage == "materialize":
-            stage_materialize()
+            stage_materialize(arguments.out)
     return 0
 
 
