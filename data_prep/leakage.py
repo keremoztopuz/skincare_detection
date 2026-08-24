@@ -79,15 +79,33 @@ def _phash_pair(path: str) -> Optional[Tuple[int, int]]:
 
 
 def collect(data_dir: str) -> List[Dict[str, str]]:
+    """Every image in the split tree, flat or folder-per-class.
+
+    The multi-label tree is flat — an image can carry two conditions, so its
+    directory cannot name one — and the label a leak is reported against comes
+    from the split's label file instead.
+    """
     rows = []
     for split in SPLITS:
-        for path in sorted(glob.glob(os.path.join(data_dir, split, "*", "*"))):
-            if path.lower().endswith((".jpg", ".jpeg", ".png")):
-                rows.append({
-                    "path": path, "split": split,
-                    "label": os.path.basename(os.path.dirname(path)),
-                    "name": os.path.basename(path),
-                })
+        conditions = {}
+        label_path = os.path.join(data_dir, f"{split}_labels.jsonl")
+        if os.path.exists(label_path):
+            with open(label_path, encoding="utf-8") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if line:
+                        record = json.loads(line)
+                        positive = sorted(k for k, v in record["conditions"].items() if v == 1)
+                        conditions[record["file"]] = "+".join(positive) or "none"
+        pattern = os.path.join(data_dir, split, "**", "*")
+        for path in sorted(glob.glob(pattern, recursive=True)):
+            if not path.lower().endswith((".jpg", ".jpeg", ".png")):
+                continue
+            name = os.path.basename(path)
+            rows.append({
+                "path": path, "split": split, "name": name,
+                "label": conditions.get(name, os.path.basename(os.path.dirname(path))),
+            })
     return rows
 
 
