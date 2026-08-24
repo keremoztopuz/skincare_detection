@@ -104,6 +104,41 @@ def collect_ffhq() -> List[Dict[str, object]]:
     return items
 
 
+def collect_ffhq_eyebags() -> List[Dict[str, object]]:
+    """FFHQ faces for the eye-bag call, current Healthy first.
+
+    Two jobs in one queue, and the order is the point. The 489 faces already
+    labelled Healthy were judged for wrinkles only, so any of them can still
+    have eye bags — and a face with eye bags sitting in the negative class
+    teaches the Eye_Bags head that its own condition is normal. Cleaning those
+    is worth more than any new positive, so they come first.
+
+    The rest is the reserve: images the wrinkle pass skipped or never reached.
+    They are the second source Eye_Bags needs, drawn from the same pool as
+    Healthy and Wrinkles so acquisition cannot separate the classes.
+    """
+    import provenance as PV
+    items = []
+    for record in PV.load_manifest().values():
+        if record.get("source") != "ffhq":
+            continue
+        if record["status"] == "canonical" and record.get("label") == "Healthy":
+            priority, note = 0, "simdi Healthy"
+        elif record["status"] == "held_out" and record.get("reject_reason") in (
+                "review_skip", "unreviewed", "age_match_surplus:Healthy",
+                "age_match_surplus:Wrinkles"):
+            priority, note = 1, record.get("age_band") or "?"
+        else:
+            continue
+        path = os.path.join(ROOT, record["canonical_path"] or "")
+        if not record.get("canonical_path") or not os.path.exists(path):
+            continue
+        items.append({"path": path, "label": "UNLABELLED",
+                      "note": note, "priority": priority})
+    items.sort(key=lambda item: (item["priority"], item["path"]))
+    return items
+
+
 def collect_glob(pattern: str, label: str) -> List[Dict[str, object]]:
     items = []
     for path in sorted(glob.glob(pattern)):
@@ -183,8 +218,8 @@ ITEMS.forEach((item, index) => {
 // Two shapes of review. A reject/keep queue is a single toggle; sorting into
 // classes needs three outcomes, and "skip" has to be one of them — forcing a
 // call on an ambiguous face is how label noise gets in.
-const THREE_WAY = JOB === "ffhq";
-const CHOICES = THREE_WAY ? ["wrinkles", "healthy", "skip"] : ["reject"];
+const CHOICES = __CHOICES__;
+const THREE_WAY = CHOICES.length === 3;
 
 function setChoice(index, choice) {
   const id = ITEMS[index].id;
@@ -206,16 +241,19 @@ function render() {
   const figures = grid.children;
   for (let index = 0; index < figures.length; index++) {
     const choice = state[ITEMS[index].id];
+    // The palette is positional, not per-vocabulary: first choice is the
+    // positive, second the negative, third the pass. That keeps one stylesheet
+    // working for every three-way job.
     figures[index].classList.toggle("reject", choice === "reject");
-    figures[index].classList.toggle("wrinkles", choice === "wrinkles");
-    figures[index].classList.toggle("healthy", choice === "healthy");
-    figures[index].classList.toggle("skipped", choice === "skip");
+    figures[index].classList.toggle("wrinkles", THREE_WAY && choice === CHOICES[0]);
+    figures[index].classList.toggle("healthy", THREE_WAY && choice === CHOICES[1]);
+    figures[index].classList.toggle("skipped", THREE_WAY && choice === CHOICES[2]);
     figures[index].classList.toggle("cursor", index === cursor);
   }
   const tally = {};
   for (const value of Object.values(state)) { tally[value] = (tally[value] || 0) + 1; }
   const summary = THREE_WAY
-    ? ["wrinkles", "healthy", "skip"].map(k => (tally[k] || 0) + " " + k).join(" \u00b7 ")
+    ? CHOICES.map(k => (tally[k] || 0) + " " + k).join(" \u00b7 ")
     : (tally.reject || 0) + " cikarildi";
   document.getElementById("stat").textContent =
     ITEMS.length + " gorsel \u00b7 " + summary;
@@ -227,9 +265,9 @@ addEventListener("keydown", (event) => {
   else if (event.key === "ArrowLeft") { move(cursor - 1); event.preventDefault(); }
   else if (event.key === "ArrowDown") { move(cursor + columns); event.preventDefault(); }
   else if (event.key === "ArrowUp") { move(cursor - columns); event.preventDefault(); }
-  else if (THREE_WAY && event.key === "a") { setChoice(cursor, "wrinkles"); move(cursor + 1); event.preventDefault(); }
-  else if (THREE_WAY && event.key === "s") { setChoice(cursor, "healthy"); move(cursor + 1); event.preventDefault(); }
-  else if (THREE_WAY && (event.key === "d" || event.key === " ")) { setChoice(cursor, "skip"); move(cursor + 1); event.preventDefault(); }
+  else if (THREE_WAY && event.key === "a") { setChoice(cursor, CHOICES[0]); move(cursor + 1); event.preventDefault(); }
+  else if (THREE_WAY && event.key === "s") { setChoice(cursor, CHOICES[1]); move(cursor + 1); event.preventDefault(); }
+  else if (THREE_WAY && (event.key === "d" || event.key === " ")) { setChoice(cursor, CHOICES[2]); move(cursor + 1); event.preventDefault(); }
   else if (!THREE_WAY && (event.key === "x" || event.key === " ")) { toggle(cursor); event.preventDefault(); }
   grid.children[cursor] && grid.children[cursor].scrollIntoView({block: "nearest"});
 });
@@ -257,11 +295,20 @@ document.getElementById("export").addEventListener("click", () => {
   URL.revokeObjectURL(url);
 });
 document.getElementById("help").innerHTML = THREE_WAY
-  ? "Klavye: <b>a</b> kirisik &middot; <b>s</b> temiz &middot; <b>d</b> atla &middot; oklar gez. Karar verilmeyen yazilmaz."
+  ? "Klavye: " + ["a","s","d"].map((k,i) => "<b>" + k + "</b> " + CHOICES[i]).join(" \u00b7 ")
+    + " \u00b7 oklar gez. Karar verilmeyen yazilmaz."
   : "Varsayilan: <b>tut</b>. Yalnizca <b>cikarilacaklara</b> tikla. <b>x</b>/space cikar.";
 render();
 </script>
 """
+
+
+# Three-way jobs and their vocabulary, positive first. A two-way job keeps the
+# single "reject" toggle.
+THREE_WAY_JOBS = {
+    "ffhq": ("wrinkles", "healthy", "skip"),
+    "ffhq-eyebags": ("eyebags", "clean", "skip"),
+}
 
 
 def build(items: List[Dict[str, object]], job: str, title: str, out_path: str, limit: int) -> Tuple[int, int, int]:
@@ -299,7 +346,8 @@ def build(items: List[Dict[str, object]], job: str, title: str, out_path: str, l
     html = (PAGE
             .replace("__ITEMS__", json.dumps(payload))
             .replace("__TITLE__", title)
-            .replace("__JOB__", job))
+            .replace("__JOB__", job)
+            .replace("__CHOICES__", json.dumps(list(THREE_WAY_JOBS.get(job, ["reject"])))))
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as handle:
         handle.write(html)
@@ -308,7 +356,7 @@ def build(items: List[Dict[str, object]], job: str, title: str, out_path: str, l
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--job", default="body-region", choices=("body-region", "eyebags", "ffhq", "glob"))
+    parser.add_argument("--job", default="body-region", choices=("body-region", "eyebags", "ffhq", "ffhq-eyebags", "glob"))
     parser.add_argument("--pattern", help="--job glob icin dosya deseni")
     parser.add_argument("--label", default="", help="--job glob icin sinif adi")
     parser.add_argument("--limit", type=int, default=1200)
@@ -318,6 +366,9 @@ def main() -> int:
     if arguments.job == "ffhq":
         items = collect_ffhq()
         title = "FFHQ: kirisik mi, temiz mi?  (a=kirisik  s=temiz  d=atla)"
+    elif arguments.job == "ffhq-eyebags":
+        items = collect_ffhq_eyebags()
+        title = "FFHQ: goz alti torbasi var mi?  (a=torba  s=temiz  d=atla)"
     elif arguments.job == "body-region":
         items = collect_body_region()
         title = "Vucut bolgesi taramasi - mahrem bolgeleri cikar"
