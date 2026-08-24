@@ -23,8 +23,6 @@ from config import (
     CHECKPOINT_DIR,
     MODEL_SAVE_PATH,
     THRESHOLDS_SAVE_PATH,
-    TOP1_MODEL_SAVE_PATH,
-    TOP1_THRESHOLDS_SAVE_PATH,
     MODEL_NAME,
     MIN_CHECKPOINT_AUROC,
     POS_WEIGHT_POWER,
@@ -35,31 +33,42 @@ from config import (
 )
 
 from model import build_model, freeze_backbone, get_model_info
-from dataset import audit_split_leakage, calculate_pos_weights, get_dataloaders
+from dataset import calculate_pos_weights, get_dataloaders
 from utils import calibrate_thresholds, calculate_metrics, save_thresholds
 
 
-class HybridMultiLabelLoss(nn.Module):
-    """BCE output with an auxiliary class-competition loss for one-hot samples."""
+class MaskedMultiLabelLoss(nn.Module):
+    """BCE scored only where a label exists.
 
-    def __init__(self, pos_weight, auxiliary_ce_weight=AUXILIARY_CE_WEIGHT, label_smoothing=LABEL_SMOOTHING):
+    Most images know about some conditions and not others: a clinical close-up
+    of a forearm says whether there is eczema and nothing at all about eye
+    bags. The previous version had no way to say "unknown", so every unjudged
+    condition arrived as a zero and trained the head on a false negative.
+
+    The auxiliary cross-entropy is gone with it. It only ever fired on rows
+    with exactly one positive, which excluded every clean image, and it asks
+    the four conditions to compete for one answer — the opposite of what a
+    multi-label head is for now that a face can carry two of them at once.
+    """
+
+    def __init__(self, pos_weight, label_smoothing=LABEL_SMOOTHING):
         super().__init__()
-        self.bce = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-        self.ce = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
-        self.auxiliary_ce_weight = auxiliary_ce_weight
+        self.register_buffer("pos_weight", pos_weight)
         self.label_smoothing = label_smoothing
 
-    def forward(self, logits, targets):
+    def forward(self, logits, targets, mask):
         # Smoothed BCE targets pull hard 0/1 labels slightly toward the center,
         # which regularizes the tiny dataset against overconfident logits.
         smoothed = targets * (1.0 - self.label_smoothing) + self.label_smoothing / 2.0
-        loss = self.bce(logits, smoothed)
-        single_label_mask = targets.sum(dim=1) == 1
-        if self.auxiliary_ce_weight > 0 and single_label_mask.any():
-            primary_targets = targets[single_label_mask].argmax(dim=1)
-            auxiliary_loss = self.ce(logits[single_label_mask], primary_targets)
-            loss = loss + self.auxiliary_ce_weight * auxiliary_loss
-        return loss
+        per_element = nn.functional.binary_cross_entropy_with_logits(
+            logits, smoothed, pos_weight=self.pos_weight, reduction="none")
+        known = mask.sum()
+        if known == 0:
+            return logits.sum() * 0.0
+        # Mean over known entries, not over the whole matrix: otherwise a
+        # batch of mostly-unknown rows would look like a batch with a small
+        # loss and the optimiser would coast through it.
+        return (per_element * mask).sum() / known
 
 
 def append_metrics_log(epoch, train_loss, val_loss, metrics, lr):
@@ -75,7 +84,7 @@ def append_metrics_log(epoch, train_loss, val_loss, metrics, lr):
             )
         log_file.write(
             f"{datetime.now().isoformat(timespec='seconds')},{epoch},"
-            f"{train_loss:.6f},{val_loss:.6f},{metrics['Top1Accuracy']:.6f},"
+            f"{train_loss:.6f},{val_loss:.6f},{metrics['AUROC']:.6f},"
             f"{metrics['NegativeReject']:.6f},"
             f"{metrics['F1']:.6f},{metrics['AUROC']:.6f},{lr:.8f}\n"
         )
@@ -92,52 +101,48 @@ def backup_existing_artifacts(save_path):
         threshold_backup = os.path.join(CHECKPOINT_DIR, f"thresholds-{timestamp}.json")
         shutil.copy2(THRESHOLDS_SAVE_PATH, threshold_backup)
         print(f"Previous thresholds backed up to: {threshold_backup}")
-    if os.path.exists(TOP1_MODEL_SAVE_PATH):
-        top1_backup = os.path.join(CHECKPOINT_DIR, f"best_top1_model-{timestamp}.pth")
-        shutil.copy2(TOP1_MODEL_SAVE_PATH, top1_backup)
-        print(f"Previous Top-1 model backed up to: {top1_backup}")
-    if os.path.exists(TOP1_THRESHOLDS_SAVE_PATH):
-        top1_threshold_backup = os.path.join(CHECKPOINT_DIR, f"top1_thresholds-{timestamp}.json")
-        shutil.copy2(TOP1_THRESHOLDS_SAVE_PATH, top1_threshold_backup)
-        print(f"Previous Top-1 thresholds backed up to: {top1_threshold_backup}")
 
 def validate_model(model, val_loader, criterion):
     model.eval()
     running_loss = 0.0
     all_probabilities = []
     all_labels = []
+    all_masks = []
 
     with torch.no_grad():
-        for images, labels in tqdm(val_loader, desc="Validating"):
-            images, labels = images.to(DEVICE), labels.to(DEVICE)
+        for images, labels, masks in tqdm(val_loader, desc="Validating"):
+            images = images.to(DEVICE)
+            labels, masks = labels.to(DEVICE), masks.to(DEVICE)
             outputs = model(images)
-            loss = criterion(outputs, labels)
+            loss = criterion(outputs, labels, masks)
             running_loss += loss.item()
             probs = torch.sigmoid(outputs)
             all_probabilities.extend(probs.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
+            all_masks.extend(masks.cpu().numpy())
 
     avg_loss = running_loss / len(val_loader)
-    thresholds = calibrate_thresholds(all_labels, all_probabilities)
-    metrics, _ = calculate_metrics(all_labels, all_probabilities, thresholds)
+    thresholds = calibrate_thresholds(all_labels, all_probabilities, all_masks)
+    metrics, _ = calculate_metrics(all_labels, all_probabilities, thresholds, all_masks)
     fixed_thresholds = np.full(len(thresholds), DETECTION_THRESHOLD, dtype=np.float32)
-    fixed_metrics, _ = calculate_metrics(all_labels, all_probabilities, fixed_thresholds)
+    fixed_metrics, _ = calculate_metrics(all_labels, all_probabilities, fixed_thresholds, all_masks)
     threshold_text = ", ".join(f"{value:.2f}" for value in thresholds)
     recall_text = ", ".join(f"{value:.3f}" for value in metrics["PerClassRecall"])
     print(
-        f"Val Loss: {avg_loss:.4f} | Top-1 Acc: {metrics['Top1Accuracy']:.4f} | "
+        f"Val Loss: {avg_loss:.4f} | "
         f"NegReject: {metrics['NegativeReject']:.4f} | "
-        f"Exact@{DETECTION_THRESHOLD:.2f}: {fixed_metrics['Accuracy']:.4f} | "
-        f"Cal Exact: {metrics['Accuracy']:.4f} | "
+        f"NegReject@{DETECTION_THRESHOLD:.2f}: {fixed_metrics['NegativeReject']:.4f} | "
         f"Prec: {metrics['Precision']:.4f} | Rec: {metrics['Recall']:.4f} | "
         f"F1: {metrics['F1']:.4f} | AUROC: {metrics['AUROC']:.4f} | "
-        f"Labels/Image: {metrics['LabelsPerImage']:.2f}"
+        f"Labels/Image: {metrics['LabelsPerImage']:.2f} | "
+        f"Known/Image: {metrics['KnownPerImage']:.2f}"
     )
     print(f"Thresholds: [{threshold_text}] | Per-class recall: [{recall_text}]")
     return avg_loss, metrics, thresholds
 
 def train_model(model, model_name=None, save_path=None, epochs=None):
-    audit_split_leakage()
+    # Leakage is checked by data_prep/leakage.py as a gate before training,
+    # not by a byte-hash pass that missed augmented copies.
     train_loader, val_loader, _ = get_dataloaders()
     epochs = epochs or NUM_EPOCHS
     save_path = save_path or MODEL_SAVE_PATH
@@ -146,11 +151,11 @@ def train_model(model, model_name=None, save_path=None, epochs=None):
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     backup_existing_artifacts(save_path)
 
-    raw_weights = calculate_pos_weights(train_loader.dataset.labels).to(DEVICE)
+    raw_weights = calculate_pos_weights(*train_loader.dataset.labels).to(DEVICE)
     weights = raw_weights.pow(POS_WEIGHT_POWER)
     print(f"Raw BCE pos_weight: {[round(value, 4) for value in raw_weights.tolist()]}")
     print(f"Applied BCE pos_weight: {[round(value, 4) for value in weights.tolist()]}")
-    criterion = HybridMultiLabelLoss(pos_weight=weights)
+    criterion = MaskedMultiLabelLoss(pos_weight=weights).to(DEVICE)
 
     head_params = [p for p in model.head.parameters() if p.requires_grad]
     head_param_ids = {id(p) for p in head_params}
@@ -175,7 +180,6 @@ def train_model(model, model_name=None, save_path=None, epochs=None):
         param.requires_grad = False
 
     best_val_auroc = MIN_CHECKPOINT_AUROC
-    best_top1_accuracy = float("-inf")
     patience_counter = 0
 
     print(f"Training model: {model_name or MODEL_NAME}")
@@ -198,12 +202,13 @@ def train_model(model, model_name=None, save_path=None, epochs=None):
             for stage in model.stages[:-1]:
                 stage.eval()
         running_loss = 0.0
-        for images, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}"):
-            images, labels = images.to(DEVICE), labels.to(DEVICE)
+        for images, labels, masks in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}"):
+            images = images.to(DEVICE)
+            labels, masks = labels.to(DEVICE), masks.to(DEVICE)
             optimizer.zero_grad()
             with torch.autocast(DEVICE, enabled=use_amp):
                 outputs = model(images)
-                loss = criterion(outputs, labels)
+                loss = criterion(outputs, labels, masks)
             scaler.scale(loss).backward()
             if GRADIENT_CLIP > 0:
                 scaler.unscale_(optimizer)
@@ -228,14 +233,14 @@ def train_model(model, model_name=None, save_path=None, epochs=None):
         elif epoch >= HEAD_ONLY_EPOCHS:
             patience_counter += 1
 
-        if val_metrics["Top1Accuracy"] > best_top1_accuracy:
-            best_top1_accuracy = val_metrics["Top1Accuracy"]
-            torch.save(model.state_dict(), TOP1_MODEL_SAVE_PATH)
-            save_thresholds(thresholds, TOP1_THRESHOLDS_SAVE_PATH)
-            print(f"Saved new best Top-1 model with accuracy={best_top1_accuracy:.4f}")
-        
+        # The Top-1 checkpoint is gone with the metric: it scored which
+        # single class won, which has no meaning once an image can carry two
+        # conditions, and it was the number that reached 1.0000 by epoch four
+        # on a dataset separable by resolution alone.
+
         if patience_counter >= PATIENCE:
             break
+
 
 if __name__ == "__main__":
     torch.manual_seed(SEED)
