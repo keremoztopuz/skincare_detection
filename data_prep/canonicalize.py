@@ -197,23 +197,40 @@ def _rotate(image: np.ndarray, degrees: float) -> np.ndarray:
         return image
     height, width = image.shape[:2]
     matrix = cv2.getRotationMatrix2D((width / 2, height / 2), degrees, 1.0)
+    # Replicate, not reflect: the rotation only exposes a thin wedge at the
+    # corners, and the crop that follows normally cuts it away. Replicating
+    # smears the edge pixel instead of mirroring recognisable content back
+    # into frame, so nothing that survives looks like a real second face.
     return cv2.warpAffine(image, matrix, (width, height),
-                          flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101)
+                          flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
 
 def _square_crop(image: np.ndarray, cx: float, cy: float, side: float) -> Optional[np.ndarray]:
-    half = side / 2.0
-    x0, y0 = int(round(cx - half)), int(round(cy - half))
-    x1, y1 = int(round(cx + half)), int(round(cy + half))
+    """Square crop that never invents pixels.
+
+    The previous version reflected the image outward when the requested box
+    ran past an edge. It padded with real-looking content instead of a flat
+    border, which was the intent — but how much reflection an image needs is
+    a property of how tightly its source framed the face, so the width of the
+    mirrored strip became a source fingerprint. Measured on the built set:
+    FFHQ crops needed about 20px when they needed any, web-scraped ones 50-63,
+    and the rate differed by class as well. That is an acquisition cue this
+    pipeline manufactured.
+
+    So: shrink the box until it fits inside the image instead. The margin
+    ends up smaller than asked for, which is a real change to the framing
+    rather than a fabricated one, and MIN_CROP_SIDE still rejects whatever
+    ends up too small to use.
+    """
     height, width = image.shape[:2]
-    # Reflect rather than pad with a constant: a constant border would be a
-    # new uniform-edge artifact, which is the family of cue being removed.
-    pad_left, pad_top = max(0, -x0), max(0, -y0)
-    pad_right, pad_bottom = max(0, x1 - width), max(0, y1 - height)
-    if any((pad_left, pad_top, pad_right, pad_bottom)):
-        image = cv2.copyMakeBorder(image, pad_top, pad_bottom, pad_left, pad_right,
-                                   cv2.BORDER_REFLECT_101)
-        x0 += pad_left; x1 += pad_left; y0 += pad_top; y1 += pad_top
+    side = min(side, float(min(height, width)))
+    half = side / 2.0
+    cx = min(max(cx, half), width - half)
+    cy = min(max(cy, half), height - half)
+    x0, y0 = int(round(cx - half)), int(round(cy - half))
+    x1, y1 = x0 + int(round(side)), y0 + int(round(side))
+    x0, y0 = max(0, x0), max(0, y0)
+    x1, y1 = min(width, x1), min(height, y1)
     crop = image[y0:y1, x0:x1]
     return crop if crop.size else None
 
