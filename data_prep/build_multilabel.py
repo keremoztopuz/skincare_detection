@@ -33,6 +33,10 @@ CONDITIONS = ("Acne", "Eczema", "Eye_Bags", "Wrinkles")
 DIAGNOSED = {
     "Acne": {"Acne": 1, "Eczema": 0},
     "Eczema": {"Eczema": 1, "Acne": 0},
+    # Read as showing no pathology by every dermatologist who could grade it.
+    # Periorbital conditions stay unknown: these are close-ups of an arm or a
+    # hand, and nothing in them speaks to eye bags or wrinkles.
+    "Clear": {"Acne": 0, "Eczema": 0},
 }
 
 DECISION_TO_VALUE = {

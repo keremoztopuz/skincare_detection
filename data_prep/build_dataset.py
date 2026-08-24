@@ -56,6 +56,10 @@ POOLS: List[Tuple[str, str, str]] = [
     ("roboflow_v3", "Eye_Bags", os.path.join(DOWNLOADS, "staged", "Eye_Bags")),
     ("roboflow_v3", "Wrinkles", os.path.join(DOWNLOADS, "staged", "Wrinkles")),
     ("utkface_aligned", "Healthy", os.path.join(DOWNLOADS, "staged", "Healthy")),
+    # Dermatologist-read clean skin from the same submission flow as the SCIN
+    # positives. The only clean-skin negative Acne and Eczema can have without
+    # letting "is there a face in shot" stand in for the diagnosis.
+    ("scin", "Clear", os.path.join(DOWNLOADS, "scin", "Clear")),
 ]
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")
