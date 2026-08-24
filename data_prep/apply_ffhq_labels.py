@@ -54,9 +54,9 @@ def main() -> int:
     decisions = load_ffhq_decisions()
     updates_glasses = []
 
-    # The review sheet keys state by a hash of the canonical file, while the
-    # manifest is keyed by a hash of the original. Both are already recorded,
-    # so the join is a lookup rather than a re-hash of 2725 files.
+    # Decisions are keyed by manifest id (see rekey_decisions.py), which is a
+    # hash of the original bytes and therefore survives a change to how those
+    # bytes are canonicalized.
     # held_out is a reserve, not a verdict: if dedup later drops a matched
     # image its partner would be left unbalanced, so a rerun has to be able
     # to draw a replacement back out. Only "rejected" is final.
@@ -70,9 +70,7 @@ def main() -> int:
                 updates_glasses.append(record["id"])
             continue
         if record.get("source") == "ffhq" and record["status"] in ("canonical", "held_out"):
-            digest = record.get("canonical_sha256")
-            if digest:
-                by_review_id[PV.make_id(digest)] = record
+            by_review_id[record["id"]] = record
 
     unknown = [i for i in decisions if i not in by_review_id]
     if unknown:
@@ -108,7 +106,6 @@ def main() -> int:
                         "label": label,
                         "label_source": "human_review",
                         "reject_reason": None,
-                        "review_id": PV.make_id(manifest[image_id]["canonical_sha256"]),
                     }
                     kept[label] += 1
                 else:

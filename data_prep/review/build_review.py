@@ -96,7 +96,7 @@ def collect_ffhq() -> List[Dict[str, object]]:
         if not os.path.exists(path):
             continue
         items.append({
-            "path": path, "label": "UNLABELLED",
+            "path": path, "label": "UNLABELLED", "id": record["id"],
             "note": record.get("age_band") or "?",
             "priority": order.get(record.get("age_band"), 9),
         })
@@ -133,7 +133,7 @@ def collect_ffhq_eyebags() -> List[Dict[str, object]]:
         path = os.path.join(ROOT, record["canonical_path"] or "")
         if not record.get("canonical_path") or not os.path.exists(path):
             continue
-        items.append({"path": path, "label": "UNLABELLED",
+        items.append({"path": path, "label": "UNLABELLED", "id": record["id"],
                       "note": note, "priority": priority})
     items.sort(key=lambda item: (item["priority"], item["path"]))
     return items
@@ -319,9 +319,15 @@ def build(items: List[Dict[str, object]], job: str, title: str, out_path: str, l
     for item in items:
         if len(payload) >= limit:
             break
-        with open(item["path"], "rb") as handle:
-            digest = hashlib.sha256(handle.read()).hexdigest()
-        record_id = PV.make_id(digest)
+        # Prefer the id the collector already knows. Hashing the canonical
+        # file makes the key depend on how the image was processed, so a
+        # change to canonicalization orphans every past decision; the
+        # manifest id is a hash of the original bytes and survives that.
+        record_id = item.get("id")
+        if not record_id:
+            with open(item["path"], "rb") as handle:
+                digest = hashlib.sha256(handle.read()).hexdigest()
+            record_id = PV.make_id(digest)
         # The pool holds byte-identical copies under different names. Showing
         # them twice wastes review time and makes the counter disagree with
         # the state, since state is keyed by id and one click would light up
