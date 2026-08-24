@@ -130,6 +130,38 @@ def stage_ingest() -> int:
     return written
 
 
+# Rejections that describe the source file itself, not how it was processed.
+# Re-running canonicalization cannot change these, and a human screen is far
+# too expensive to discard.
+STICKY_REJECTIONS = ("intimate", "non_photograph", "mislabelled", "human_review")
+
+
+def stage_reset() -> int:
+    """Send processed records back to pending so a rule change can re-run.
+
+    Canonicalization is not frozen — a crop or padding rule can change — and
+    every derived field goes stale with it. Labels do not: they describe the
+    face, not the processing, so they stay. So does anything rejected by
+    filename or by a person.
+    """
+    updates = {}
+    for record in PV.load_manifest().values():
+        reason = record.get("reject_reason") or ""
+        if reason.startswith(STICKY_REJECTIONS):
+            continue
+        if record["status"] == "pending" and not record.get("canonical_path"):
+            continue
+        updates[record["id"]] = {
+            "status": "pending", "reject_reason": None,
+            "canonical_path": None, "canonical_sha256": None,
+            "face": None, "crop": None, "quality": None, "overlay": None,
+            "group_id": None, "split": None, "split_scheme": None,
+        }
+    PV.update_records(updates)
+    print(f"reset: {len(updates)} kayit yeniden islenecek")
+    return len(updates)
+
+
 def stage_canonicalize(limit: Optional[int] = None) -> int:
     manifest = PV.load_manifest()
     todo = [r for r in manifest.values()
@@ -422,7 +454,7 @@ def stage_materialize(out_dir: str) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--stage", required=True,
-                        choices=("ingest", "canonicalize", "dedup", "split", "materialize", "all"))
+                        choices=("ingest", "reset", "canonicalize", "dedup", "split", "materialize", "all"))
     parser.add_argument("--limit", type=int)
     parser.add_argument("--target", type=int, default=0,
                         help="sinif basina hedef grup sayisi; 0 = sinirsiz")
@@ -439,6 +471,8 @@ def main() -> int:
         print(f"\n=== {stage} ===")
         if stage == "ingest":
             stage_ingest()
+        elif stage == "reset":
+            stage_reset()
         elif stage == "canonicalize":
             stage_canonicalize(arguments.limit)
         elif stage == "dedup":
