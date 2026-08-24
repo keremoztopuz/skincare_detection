@@ -56,9 +56,12 @@ def main() -> int:
     # The review sheet keys state by a hash of the canonical file, while the
     # manifest is keyed by a hash of the original. Both are already recorded,
     # so the join is a lookup rather than a re-hash of 2725 files.
+    # held_out is a reserve, not a verdict: if dedup later drops a matched
+    # image its partner would be left unbalanced, so a rerun has to be able
+    # to draw a replacement back out. Only "rejected" is final.
     by_review_id = {}
     for record in manifest.values():
-        if record.get("source") == "ffhq" and record["status"] == "canonical":
+        if record.get("source") == "ffhq" and record["status"] in ("canonical", "held_out"):
             digest = record.get("canonical_sha256")
             if digest:
                 by_review_id[PV.make_id(digest)] = record
@@ -93,8 +96,10 @@ def main() -> int:
             for index, image_id in enumerate(ids):
                 if index < take:
                     updates[image_id] = {
+                        "status": "canonical",
                         "label": label,
                         "label_source": "human_review",
+                        "reject_reason": None,
                         "review_id": PV.make_id(manifest[image_id]["canonical_sha256"]),
                     }
                     kept[label] += 1
